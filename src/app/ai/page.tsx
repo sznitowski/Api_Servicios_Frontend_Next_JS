@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
-import { api } from '@/lib/api';
+import { api } from '@/lib/config';
 
 export default function AIPage() {
   const { token, user, ready } = useAuth();

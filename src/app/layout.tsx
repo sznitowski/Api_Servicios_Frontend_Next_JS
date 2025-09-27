@@ -1,14 +1,15 @@
-import './globals.css';
-import type { Metadata } from 'next';
-import { AuthProvider } from './auth/AuthContext';
-
-export const metadata: Metadata = { title: 'App Servicios' };
+import { AuthProvider } from "@/lib/auth";
+import Navbar from "@/components/Navbar";
+import "./globals.css";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <Navbar />
+          <main style={{ padding: 16 }}>{children}</main>
+        </AuthProvider>
       </body>
     </html>
   );

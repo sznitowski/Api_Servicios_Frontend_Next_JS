@@ -2,7 +2,7 @@
 
 import { useAuth } from '../auth/AuthContext';
 import { useEffect, useState } from 'react';
-import { API_BASE, api } from '@/lib/api';
+import { API_BASE, api } from '@/lib/config';
 
 type Notif = { id:number; type:string; message:string; createdAt:string; seenAt?:string|null };
 
