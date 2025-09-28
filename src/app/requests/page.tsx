@@ -5,177 +5,180 @@ import { useAuth } from "@/lib/auth";
 import { useApi } from "@/hooks/useApi";
 import { useSSE } from "@/hooks/useSSE";
 
-type ServiceRequest = {
-  id: number;
-  title: string;
-  status: string;
-  priceOffered?: number | string | null;
-  priceAgreed?: number | string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type ListMeta = {
-  page: number;
-  limit: number;
-  total: number;
-  pages: number;
+// -------- Tipos --------
+type RequestRow = {
+    id: number;
+    title: string;
+    status: string;
+    priceOffered: number | null;
+    priceAgreed: number | null;
+    createdAt: string; // ISO
 };
 
 type ListResp = {
-  items: ServiceRequest[];
-  meta: ListMeta;
+    items: RequestRow[];
+    meta: { page: number; limit: number; total: number; pages: number };
 };
 
-// ---- helpers de presentación ----------------------------------------------
-
-const fmtMoney = (v: unknown) => {
-  if (v === null || v === undefined || v === "") return "—";
-  const n = Number(v);
-  if (!Number.isFinite(n)) return "—";
-  // Si querés sin símbolo, usá el return comentado
-  return n.toLocaleString("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  // return `$ ${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
-
-const fmtDateTime = (iso: string) => {
-  try {
-    return new Date(iso).toLocaleString("es-AR");
-  } catch {
-    return iso ?? "—";
-  }
-};
-
-// ---------------------------------------------------------------------------
+// -------- Utils UI --------
+function formatMoney(n: number | null | undefined) {
+    if (n == null || Number.isNaN(n)) return "—";
+    return n.toLocaleString("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2 });
+}
+function fmtDate(iso: string | null | undefined) {
+    if (!iso) return "—";
+    try {
+        const d = new Date(iso);
+        return new Intl.DateTimeFormat("es-AR", {
+            dateStyle: "short",
+            timeStyle: "medium",
+        }).format(d);
+    } catch {
+        return iso;
+    }
+}
 
 export default function RequestsPage() {
-  const { token } = useAuth();
-  const { api } = useApi();
+    const { token } = useAuth();
+    const { api } = useApi();
 
-  const [items, setItems] = useState<ServiceRequest[]>([]);
-  const [meta, setMeta] = useState<ListMeta>({ page: 1, limit: 10, total: 0, pages: 1 });
-  const [loading, setLoading] = useState(false);
+    const [items, setItems] = useState<RequestRow[]>([]);
+    const [page, setPage] = useState(1);
+    const [limit] = useState(10);
+    const [total, setTotal] = useState(0);
+    const [loading, setLoading] = useState(false);
 
-  // SSE para escuchar cambios y refrescar (el hook agrega el access_token)
-  const { lastEvent, connected } = useSSE("/api/notifications/stream");
+    // -------- carga inicial / paginación --------
+    useEffect(() => {
+        let alive = true;
 
-  const page = meta.page;
-  const limit = meta.limit;
+        (async () => {
+            try {
+                setLoading(true);
+                const data = await api<ListResp>(`/requests/me?page=${page}&limit=${limit}`);
+                if (!alive) return;
+                setItems(data.items || []);
+                setTotal(data.meta?.total ?? data.items?.length ?? 0);
+            } catch (e) {
+                if (!alive) return;
+                // opcional: setear estado de error
+            } finally {
+                if (alive) setLoading(false);
+            }
+        })();
 
-  const canPrev = page > 1;
-  const canNext = page < meta.pages;
+        return () => {
+            alive = false;
+        };
+    }, [api, page, limit]);
 
-  const load = useMemo(
-    () => async (p = page) => {
-      setLoading(true);
-      try {
-        const res = await api<ListResp>(`/requests/me?page=${p}&limit=${limit}`);
-        setItems(res.items ?? []);
-        setMeta(res.meta ?? { page: p, limit, total: res.items?.length ?? 0, pages: p });
-      } finally {
-        setLoading(false);
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [api, page, limit]
-  );
 
-  useEffect(() => {
-    if (!token) {
-      setItems([]);
-      setMeta((m) => ({ ...m, page: 1, total: 0, pages: 1 }));
-      return;
-    }
-    load(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+    // -------- SSE: actualizamos SOLO la fila afectada --------
+    // Usamos el stream de notificaciones del backend.
+    const ssePath = useMemo(() => "/api/notifications/stream", []);
+    const { lastEvent } = useSSE(ssePath);
 
-  // Cada vez que llega un evento SSE (claim, update, etc.), refrescamos
-  useEffect(() => {
-    if (!lastEvent) return;
-    // Podrías filtrar por tipos: if (lastEvent.type === 'REQUEST_*') { ... }
-    load(page);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastEvent]);
+    useEffect(() => {
+        if (!lastEvent) return;
 
-  const goto = (p: number) => {
-    if (p < 1 || p > meta.pages) return;
-    load(p);
-  };
+        // Normalizamos: algunos eventos vienen como { type, request, ... }
+        const ev = lastEvent as any;
 
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold flex items-center gap-2">
-        Mis pedidos
-        <span
-          title={connected ? "Conectado a SSE" : "Desconectado de SSE"}
-          className={`inline-block h-3 w-3 rounded-full ${
-            connected ? "bg-green-500" : "bg-gray-400"
-          }`}
-        />
-      </h1>
+        // Mantener badge fuera de aquí; acá solo tocamos la tabla si hay request.
+        const req: Partial<RequestRow> | undefined = ev?.request;
+        if (!req?.id) return;
 
-      <div className="mt-4 border rounded overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-left">
-            <tr>
-              <th className="px-3 py-2">ID</th>
-              <th className="px-3 py-2">Título</th>
-              <th className="px-3 py-2">Estado</th>
-              <th className="px-3 py-2">Ofertado</th>
-              <th className="px-3 py-2">Acordado</th>
-              <th className="px-3 py-2">Creado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 && !loading && (
-              <tr>
-                <td className="px-3 py-6 text-center text-gray-500" colSpan={6}>
-                  No hay pedidos.
-                </td>
-              </tr>
-            )}
-            {items.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="px-3 py-2">{r.id}</td>
-                <td className="px-3 py-2">{r.title}</td>
-                <td className="px-3 py-2">{r.status}</td>
-                <td className="px-3 py-2">{fmtMoney(r.priceOffered)}</td>
-                <td className="px-3 py-2">{fmtMoney(r.priceAgreed)}</td>
-                <td className="px-3 py-2">{fmtDateTime(r.createdAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        setItems((prev) => {
+            const i = prev.findIndex((r) => r.id === req.id);
+            if (i === -1) return prev; // no está en la página actual, no hacemos nada
 
-      {/* Paginación simple */}
-      <div className="mt-4 flex items-center gap-3">
-        <button
-          onClick={() => goto(page - 1)}
-          disabled={!canPrev || loading}
-          className="border rounded px-3 py-1 disabled:opacity-50"
-        >
-          ← Anterior
-        </button>
-        <span>
-          Página <b>{meta.page}</b> — Total: <b>{meta.total}</b>
-        </span>
-        <button
-          onClick={() => goto(page + 1)}
-          disabled={!canNext || loading}
-          className="border rounded px-3 py-1 disabled:opacity-50"
-        >
-          Siguiente →
-        </button>
-      </div>
+            // merge inmutable de la fila
+            const merged: RequestRow = {
+                ...prev[i],
+                ...req,
+                // Aseguramos types numéricos o null, por si viene string
+                priceOffered:
+                    req.priceOffered === undefined
+                        ? prev[i].priceOffered
+                        : req.priceOffered === null
+                            ? null
+                            : Number(req.priceOffered),
+                priceAgreed:
+                    req.priceAgreed === undefined
+                        ? prev[i].priceAgreed
+                        : req.priceAgreed === null
+                            ? null
+                            : Number(req.priceAgreed),
+            };
+            const next = prev.slice();
+            next[i] = merged;
+            return next;
+        });
+    }, [lastEvent]);
 
-      {loading && <p className="mt-2 text-sm text-gray-500">Cargando…</p>}
-    </div>
-  );
+    // -------- Render --------
+    const pages = Math.max(1, Math.ceil(total / limit));
+
+    return (
+        <div className="p-6">
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+                Mis pedidos <span className="inline-block w-2 h-2 rounded-full bg-gray-400" />
+            </h1>
+
+            <div className="mt-6 overflow-x-auto">
+                <table className="min-w-full border">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="text-left px-3 py-2 border-b">ID</th>
+                            <th className="text-left px-3 py-2 border-b">Título</th>
+                            <th className="text-left px-3 py-2 border-b">Estado</th>
+                            <th className="text-left px-3 py-2 border-b">Ofertado</th>
+                            <th className="text-left px-3 py-2 border-b">Acordado</th>
+                            <th className="text-left px-3 py-2 border-b">Creado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {items.map((r) => (
+                            <tr key={r.id} className="odd:bg-white even:bg-gray-50">
+                                <td className="px-3 py-2">{r.id}</td>
+                                <td className="px-3 py-2">{r.title}</td>
+                                <td className="px-3 py-2">{r.status}</td>
+                                <td className="px-3 py-2">{formatMoney(r.priceOffered)}</td>
+                                <td className="px-3 py-2">{formatMoney(r.priceAgreed)}</td>
+                                <td className="px-3 py-2">{fmtDate(r.createdAt)}</td>
+                            </tr>
+                        ))}
+                        {items.length === 0 && !loading && (
+                            <tr>
+                                <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
+                                    Sin resultados
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Paginación simple */}
+            <div className="mt-4 flex items-center gap-3">
+                <button
+                    className="border px-3 py-1 rounded disabled:opacity-50"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                >
+                    ← Anterior
+                </button>
+                <span>
+                    Página <b>{page}</b> — Total: <b>{total}</b>
+                </span>
+                <button
+                    className="border px-3 py-1 rounded disabled:opacity-50"
+                    onClick={() => setPage((p) => Math.min(pages, p + 1))}
+                    disabled={page >= pages}
+                >
+                    Siguiente →
+                </button>
+            </div>
+        </div>
+    );
 }
