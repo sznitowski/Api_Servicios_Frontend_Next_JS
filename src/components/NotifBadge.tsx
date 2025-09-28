@@ -10,7 +10,7 @@ export default function NotifBadge() {
   const [count, setCount] = useState<number>(0);
   const { lastEvent, connected } = useSSE("/api/notifications/stream");
 
-  // Carga inicial del contador
+  // 1) Carga inicial
   useEffect(() => {
     (async () => {
       try {
@@ -20,37 +20,45 @@ export default function NotifBadge() {
           setCount(total ?? 0);
         }
       } catch {
-        // noop
+        /* noop */
       }
     })();
   }, [apiFetch]);
 
-  // Al llegar una notificación nueva por SSE, incrementamos
+  // 2) SSE: si llega una notificación (tiene id + message|type), incrementamos
   useEffect(() => {
     if (!lastEvent) return;
     try {
       const ev = lastEvent as any;
-      // Heurística simple: si parece notificación (id + message|type), sumamos 1
       if (ev?.id && (ev?.message || ev?.type)) {
         setCount((c) => c + 1);
       }
     } catch {
-      // noop
+      /* noop */
     }
   }, [lastEvent]);
 
-  // Puente mínimo entre páginas: otros componentes pueden ajustar el badge
+  // 3) Puente global: otras pantallas pueden ajustar el badge sin recargar
+  //    - notif:decrease -> resta N (p.ej., al marcar como visto)
+  //    - notif:inc     -> suma N (lo dejo por compatibilidad si ya lo usabas)
   useEffect(() => {
     const onInc = (e: Event) =>
       setCount((c) => c + Number((e as CustomEvent).detail || 1));
-    const onSeen = (e: Event) =>
+    const onDec = (e: Event) =>
       setCount((c) => Math.max(0, c - Number((e as CustomEvent).detail || 1)));
 
     window.addEventListener("notif:inc", onInc as EventListener);
-    window.addEventListener("notif:seen", onSeen as EventListener);
+    window.addEventListener("notif:decrease", onDec as EventListener);
+
+    // Compatibilidad hacia atrás: si en algún lado sigue emitiendo "notif:seen"
+    const onSeenCompat = (e: Event) =>
+      setCount((c) => Math.max(0, c - Number((e as CustomEvent).detail || 1)));
+    window.addEventListener("notif:seen", onSeenCompat as EventListener);
+
     return () => {
       window.removeEventListener("notif:inc", onInc as EventListener);
-      window.removeEventListener("notif:seen", onSeen as EventListener);
+      window.removeEventListener("notif:decrease", onDec as EventListener);
+      window.removeEventListener("notif:seen", onSeenCompat as EventListener);
     };
   }, []);
 
