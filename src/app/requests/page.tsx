@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { useApi } from "@/hooks/useApi";
 import { useSSE } from "@/hooks/useSSE";
@@ -23,7 +24,11 @@ type ListResp = {
 // -------- Utils UI --------
 function formatMoney(n: number | null | undefined) {
     if (n == null || Number.isNaN(n)) return "—";
-    return n.toLocaleString("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 2 });
+    return n.toLocaleString("es-AR", {
+        style: "currency",
+        currency: "ARS",
+        minimumFractionDigits: 2,
+    });
 }
 function fmtDate(iso: string | null | undefined) {
     if (!iso) return "—";
@@ -59,7 +64,7 @@ export default function RequestsPage() {
                 if (!alive) return;
                 setItems(data.items || []);
                 setTotal(data.meta?.total ?? data.items?.length ?? 0);
-            } catch (e) {
+            } catch {
                 if (!alive) return;
                 // opcional: setear estado de error
             } finally {
@@ -72,11 +77,8 @@ export default function RequestsPage() {
         };
     }, [api, page, limit]);
 
-
     // -------- SSE: actualizamos SOLO la fila afectada --------
-    // Usamos el stream de notificaciones del backend.
-    const ssePath = useMemo(() => "/api/notifications/stream", []);
-    const { lastEvent } = useSSE(ssePath);
+    const { lastEvent } = useSSE("/api/notifications/stream");
 
     useEffect(() => {
         if (!lastEvent) return;
@@ -141,7 +143,11 @@ export default function RequestsPage() {
                         {items.map((r) => (
                             <tr key={r.id} className="odd:bg-white even:bg-gray-50">
                                 <td className="px-3 py-2">{r.id}</td>
-                                <td className="px-3 py-2">{r.title}</td>
+                                <td className="px-3 py-2">
+                                    <Link href={`/requests/${r.id}`} className="underline">
+                                        {r.title}
+                                    </Link>
+                                </td>
                                 <td className="px-3 py-2">{r.status}</td>
                                 <td className="px-3 py-2">{formatMoney(r.priceOffered)}</td>
                                 <td className="px-3 py-2">{formatMoney(r.priceAgreed)}</td>
