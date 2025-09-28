@@ -37,6 +37,8 @@ export default function Navbar() {
       <Link href="/requests">Pedidos</Link>
       <Link href="/notifications">Notificaciones</Link>
       <Link href="/ai">AI</Link>
+      <Link href="/provider/open" className="underline">Abiertos cerca</Link>
+      <Link href="/provider/my" className="underline">Mis trabajos</Link>
 
       {/* Evitamos mismatch entre servidor y cliente */}
       <div className="ml-auto flex items-center gap-4" suppressHydrationWarning>
