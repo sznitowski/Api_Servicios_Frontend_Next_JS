@@ -1,73 +1,56 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { useApi } from '@/hooks/useApi';
+import { useEffect, useState } from "react";
+import { useApi } from "@/hooks/useApi";
+import { useAuth } from "@/lib/auth";
 
-type PrefsResp = { disabledTypes: string[] };
-type TypesResp = { types: string[] }; // si tu backend lo tiene; si no, caemos a DEFAULT_TYPES
+// Ajustá esta lista si tu backend maneja otros tipos
+const ALL_TYPES = ["OFFERED", "IN_PROGRESS", "DONE"] as const;
+type TypeKey = typeof ALL_TYPES[number];
 
-// Lista por defecto (si /notifications/types no existe).
-const DEFAULT_TYPES = [
-  'OFFERED',
-  'ACCEPTED',
-  'REJECTED',
-  'IN_PROGRESS',
-  'CANCELLED',
-  'DONE',
-  'PRICE_UPDATED',
-] as const;
+type PrefsResp = { disabledTypes: string[] } | { ok: boolean; disabledTypes?: string[] };
 
-export default function NotificationSettingsPage() {
+export default function NotifSettingsPage() {
+  const { token } = useAuth();
   const { api, apiFetch } = useApi();
 
-  const [loading, setLoading] = useState(true);
+  const [disabled, setDisabled] = useState<Record<TypeKey, boolean>>({
+    OFFERED: false,
+    IN_PROGRESS: false,
+    DONE: false,
+  });
+
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  // Tipos “soportados” por la UI
-  const [allTypes, setAllTypes] = useState<string[]>([]);
-  // Mapa de habilitado (true = recibir notificaciones de ese tipo)
-  const [enabled, setEnabled] = useState<Record<string, boolean>>({});
-
-  // Track para botón “Guardar”
-  const dirty = useMemo(() => !loading && !saving, [loading, saving]);
-
-  // Carga inicial: intentamos leer los tipos del servidor, las prefs y armamos el mapa
   useEffect(() => {
-    let alive = true;
+    if (!token) return;
 
+    let alive = true;
     (async () => {
       setLoading(true);
-      setError(null);
-
+      setMsg(null);
+      setErr(null);
       try {
-        // 1) Tipos soportados (si el endpoint no existe, 404 -> caemos a DEFAULT_TYPES)
-        let serverTypes: string[] = [];
+        // Intento 1: GET /notifications/prefs
+        let data: any;
         try {
-          const t = await api<TypesResp>('/notifications/types');
-          // Podría venir como { types: string[] } o directamente string[] en tu backend; cubrimos ambos.
-          serverTypes = Array.isArray(t as any) ? (t as any as string[]) : (t?.types ?? []);
-        } catch (e: any) {
-          serverTypes = [...DEFAULT_TYPES];
+          data = await api<PrefsResp>("/notifications/prefs");
+        } catch {
+          // Si tu backend no tiene GET, podés inicializar vacío
+          data = { disabledTypes: [] };
         }
+        if (!alive) return;
 
-        // 2) Preferencias actuales
-        const pref = await api<PrefsResp>('/notifications/prefs');
-        const disabled = new Set(pref?.disabledTypes ?? []);
-
-        // 3) Unión por si hay tipos en disabled que no están en serverTypes
-        const union = Array.from(new Set([...serverTypes, ...disabled]));
-
-        // 4) Mapa enabled (no está en disabled -> true)
-        const nextEnabled: Record<string, boolean> = {};
-        union.forEach((t) => (nextEnabled[t] = !disabled.has(t)));
-
-        if (alive) {
-          setAllTypes(union);
-          setEnabled(nextEnabled);
-        }
+        const dts = (data?.disabledTypes ?? []) as string[];
+        const next: Record<TypeKey, boolean> = { OFFERED: false, IN_PROGRESS: false, DONE: false };
+        ALL_TYPES.forEach((t) => (next[t] = dts.includes(t)));
+        setDisabled(next);
       } catch (e: any) {
-        if (alive) setError(e?.message || 'No se pudieron cargar las preferencias');
+        if (!alive) return;
+        setErr(e?.message ?? "Error leyendo preferencias");
       } finally {
         if (alive) setLoading(false);
       }
@@ -76,104 +59,70 @@ export default function NotificationSettingsPage() {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token, api]);
 
-  const toggle = (t: string) => {
-    setEnabled((prev) => ({ ...prev, [t]: !prev[t] }));
-  };
-
-  const selectAll = (value: boolean) => {
-    const next: Record<string, boolean> = {};
-    for (const t of allTypes) next[t] = value;
-    setEnabled(next);
-  };
+  const toggle = (t: TypeKey) =>
+    setDisabled((prev) => ({ ...prev, [t]: !prev[t] }));
 
   const save = async () => {
     setSaving(true);
-    setError(null);
+    setMsg(null);
+    setErr(null);
     try {
-      const disabledTypes = allTypes.filter((t) => !enabled[t]);
-      const res = await apiFetch('/notifications/prefs', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+      const disabledTypes = ALL_TYPES.filter((t) => disabled[t]);
+      const res = await apiFetch("/notifications/prefs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ disabledTypes }),
       });
-
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(text || `Error HTTP ${res.status}`);
+        const text = await res.text();
+        throw new Error(text || "Error guardando preferencias");
       }
-
-      // feedback simple
-      alert('Preferencias guardadas ✅');
+      setMsg("Preferencias guardadas ✔︎");
     } catch (e: any) {
-      setError(e?.message || 'No se pudieron guardar las preferencias');
-      alert(`Error: ${e?.message || 'No se pudo guardar'}`);
+      setErr(e?.message ?? "Error guardando preferencias");
     } finally {
       setSaving(false);
     }
   };
 
+  if (!token) return <div className="p-6">No autenticado.</div>;
+  if (loading) return <div className="p-6">Cargando…</div>;
+
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Preferencias de notificaciones</h1>
+    <div className="p-6 space-y-4">
+      <h1 className="text-2xl font-bold">Preferencias de notificaciones</h1>
 
-      {loading && <div>Cargando…</div>}
-      {!loading && error && (
-        <div className="text-red-600 mb-3">⚠️ {error}</div>
-      )}
+      <p className="text-sm text-gray-600">
+        Elegí qué tipos de notificación querés silenciar. Las silenciadas no
+        incrementarán el badge ni aparecerán por SSE (servidor).
+      </p>
 
-      {!loading && !error && (
-        <>
-          <div className="mb-4 flex gap-2">
-            <button
-              onClick={() => selectAll(true)}
-              className="border px-3 py-1 rounded"
-              disabled={saving}
-            >
-              Habilitar todas
-            </button>
-            <button
-              onClick={() => selectAll(false)}
-              className="border px-3 py-1 rounded"
-              disabled={saving}
-            >
-              Deshabilitar todas
-            </button>
-          </div>
+      <div className="space-y-2">
+        {ALL_TYPES.map((t) => (
+          <label key={t} className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={disabled[t]}
+              onChange={() => toggle(t)}
+            />
+            <span>{t}</span>
+          </label>
+        ))}
+      </div>
 
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {allTypes.map((t) => (
-              <label
-                key={t}
-                className="flex items-center gap-3 border rounded px-3 py-2"
-              >
-                <input
-                  type="checkbox"
-                  checked={!!enabled[t]}
-                  onChange={() => toggle(t)}
-                  disabled={saving}
-                />
-                <span className="font-mono">{t}</span>
-                <span className="text-xs text-gray-500 ml-auto">
-                  {enabled[t] ? 'recibir' : 'silenciado'}
-                </span>
-              </label>
-            ))}
-          </div>
-
-          <div className="mt-6 flex gap-3">
-            <button
-              onClick={save}
-              className="bg-black text-white px-4 py-2 rounded disabled:opacity-60"
-              disabled={saving || !dirty}
-            >
-              {saving ? 'Guardando…' : 'Guardar'}
-            </button>
-          </div>
-        </>
-      )}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="border px-3 py-1 rounded disabled:opacity-60"
+        >
+          {saving ? "Guardando…" : "Guardar"}
+        </button>
+        {msg && <span className="text-green-700">{msg}</span>}
+        {err && <span className="text-red-600">{err}</span>}
+      </div>
     </div>
   );
 }
