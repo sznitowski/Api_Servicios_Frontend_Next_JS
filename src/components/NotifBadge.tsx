@@ -4,22 +4,32 @@ import { useEffect, useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useSSE } from "@/hooks/useSSE";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL!; // ej: http://localhost:3000/api
-
 export default function NotifBadge() {
-  const { apiFetch } = useApi();
-  const { lastEvent, connected } = useSSE(`${API_BASE}/notifications/stream`);
-  const [count, setCount] = useState(0);
+  const { api } = useApi();
+  const [count, setCount] = useState<number>(0);
+
+  // carga inicial del contador
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { total } = await api<{ total: number }>("/notifications/me/count");
+        if (alive) setCount(total);
+      } catch {}
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [api]);
+
+  // 🔴 antes: useSSE(`${process.env.NEXT_PUBLIC_API_URL}/notifications/stream`)
+  // ✅ ahora: dejamos que useSSE resuelva la base
+  const { lastEvent, connected } = useSSE("/notifications/stream");
 
   useEffect(() => {
-    apiFetch("/notifications/me/count")
-      .then((r) => r.ok ? r.json() : { total: 0 })
-      .then(({ total }) => setCount(total ?? 0))
-      .catch(() => {});
-  }, [apiFetch]);
-
-  useEffect(() => {
-    if (lastEvent?.id || lastEvent?.type) setCount((c) => c + 1);
+    if (lastEvent?.id || lastEvent?.type) {
+      setCount((c) => c + 1);
+    }
   }, [lastEvent]);
 
   return (

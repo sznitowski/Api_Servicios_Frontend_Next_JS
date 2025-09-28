@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useAuth } from '@/app/auth/AuthContext';
+import { useAuth } from '@/lib/auth';
 import { useApi } from '@/hooks/useApi';
 import { useSSE } from '@/hooks/useSSE';
 
@@ -11,7 +11,7 @@ type Notif = {
   message: string;
   createdAt: string;
   seenAt?: string | null;
-  request?: { id: number; title?: string; status?: string | null } | null;
+  request?: { id: number; title?: string; status?: string } | null;
 };
 
 type ListResp = {
@@ -20,98 +20,112 @@ type ListResp = {
 };
 
 export default function NotificationsPage() {
-  const { token, ready, user } = useAuth();
+  const { token } = useAuth();
   const { apiFetch } = useApi();
-
-  // URL del stream SSE (compatible con el guard que acepta access_token en query)
-  const sseUrl = useMemo(
-    () =>
-      token
-        ? `${process.env.NEXT_PUBLIC_API_URL}/notifications/stream?access_token=${token}`
-        : '',
-    [token],
-  );
-
-  const { lastEvent } = useSSE(sseUrl);
 
   const [items, setItems] = useState<Notif[]>([]);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  async function load(p = 1) {
-    setLoading(true);
-    try {
-      const res = await apiFetch(`/notifications/me?page=${p}&limit=10`);
-      if (res.ok) {
-        const data: ListResp = await res.json();
-        setItems(data.items);
-        setPage(data.meta.page);
-        setPages(data.meta.pages);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // carga inicial cuando hay sesión lista
+  // -------- carga inicial / paginado --------
   useEffect(() => {
-    if (!ready || !user) return;
-    load(1);
-  }, [ready, user]);
+    let alive = true;
 
-  // ante un evento SSE, prepend a la lista (soft realtime)
+    // Si no hay token, no intentamos pedir y salimos del modo "cargando"
+    if (!token) {
+      setItems([]);
+      setPages(1);
+      setLoading(false);
+      return () => { alive = false; };
+    }
+
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await apiFetch(`/notifications/me?page=${page}&limit=10`, {}, token);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data: ListResp = await res.json();
+        if (!alive) return;
+        setItems(data.items);
+        setPages(data.meta.pages);
+      } catch {
+        if (alive) setItems([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+
+    return () => { alive = false; };
+  }, [token, page, apiFetch]);
+
+  // -------- SSE: actualizamos al vuelo --------
+  const ssePath = useMemo(
+    () => `${process.env.NEXT_PUBLIC_API_URL}/notifications/stream`,
+    []
+  );
+  const { lastEvent } = useSSE(ssePath);
+
   useEffect(() => {
     if (!lastEvent) return;
-    setItems((prev) => [lastEvent as unknown as Notif, ...prev].slice(0, 50));
+    try {
+      const n = lastEvent as Notif;
+      if (n && n.id) {
+        setItems(prev => [n, ...prev].slice(0, 10));
+      }
+    } catch { /* ignore */ }
   }, [lastEvent]);
 
-  if (!ready) return <div className="p-6">Cargando…</div>;
-  if (!user) return <div className="p-6">No autenticado.</div>;
+  // -------- UI --------
+  if (loading) return <div className="p-6">Cargando…</div>;
+  if (!token) return <div className="p-6">No autenticado.</div>;
 
   return (
-    <div className="p-6 space-y-4">
-      <h1 className="text-xl font-bold">Mis notificaciones</h1>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Notificaciones</h1>
 
-      {loading ? <div>Cargando…</div> : null}
+      {items.length === 0 ? (
+        <p>No hay notificaciones.</p>
+      ) : (
+        <table className="w-full border">
+          <thead>
+            <tr className="bg-gray-100">
+              <th className="p-2 text-left">ID</th>
+              <th className="p-2 text-left">Tipo</th>
+              <th className="p-2 text-left">Mensaje</th>
+              <th className="p-2 text-left">Creado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(n => (
+              <tr key={n.id} className="border-t">
+                <td className="p-2">{n.id}</td>
+                <td className="p-2">{n.type}</td>
+                <td className="p-2">{n.message}</td>
+                <td className="p-2">
+                  {new Date(n.createdAt).toLocaleString()}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
-      <ul className="space-y-2">
-        {items.map((n) => (
-          <li key={n.id} className="border rounded p-3">
-            <div className="text-sm text-gray-500">
-              {new Date(n.createdAt).toLocaleString()}
-            </div>
-            <div className="font-medium">{n.type}</div>
-            <div>{n.message}</div>
-            {n.request ? (
-              <div className="text-sm text-gray-600">
-                Req #{n.request.id} • {n.request.title}
-              </div>
-            ) : null}
-          </li>
-        ))}
-        {items.length === 0 && !loading ? (
-          <li>No hay notificaciones.</li>
-        ) : null}
-      </ul>
-
-      <div className="flex items-center gap-2">
+      <div className="mt-4 flex items-center gap-3">
         <button
-          className="px-3 py-1 border rounded"
-          disabled={page <= 1 || loading}
-          onClick={() => load(page - 1)}
+          className="border px-3 py-1 rounded"
+          onClick={() => setPage(p => Math.max(1, p - 1))}
+          disabled={page <= 1}
         >
-          Anterior
+          ← Anterior
         </button>
-        <span>
-          Página {page} / {pages}
-        </span>
+        <span>Página {page} de {pages}</span>
         <button
-          className="px-3 py-1 border rounded"
-          disabled={page >= pages || loading}
-          onClick={() => load(page + 1)}
+          className="border px-3 py-1 rounded"
+          onClick={() => setPage(p => Math.min(pages, p + 1))}
+          disabled={page >= pages}
         >
-          Siguiente
+          Siguiente →
         </button>
       </div>
     </div>
