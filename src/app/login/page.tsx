@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (token) router.replace("/dashboard");
+    if (token) router.replace("/services");
   }, [token, router]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -22,7 +22,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);   // llama a `${NEXT_PUBLIC_API_URL}/auth/login`
-      router.replace("/dashboard");
+      router.replace("/services");
     } catch (e: any) {
       setErr(e?.message ?? "Error de login");
     } finally {
