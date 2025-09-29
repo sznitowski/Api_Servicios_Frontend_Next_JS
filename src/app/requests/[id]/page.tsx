@@ -415,7 +415,14 @@ export default function RequestDetailPage() {
                     </div>
                     <div>
                         <dt className="text-gray-500">Proveedor</dt>
-                        <dd>{req.provider?.email ?? "—"}</dd>
+                        <dd>
+                            {req.provider?.email ?? "—"}
+                            {req.provider?.id ? (
+                                <Link href={`/providers/${req.provider.id}`} className="underline text-sm ml-2">
+                                    Ver reseñas
+                                </Link>
+                            ) : null}
+                        </dd>
                     </div>
                 </dl>
             </div>

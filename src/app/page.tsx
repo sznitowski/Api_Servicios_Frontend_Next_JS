@@ -41,6 +41,7 @@ export default function Home() {
       <div className="space-x-3">
         <Link href="/dashboard" className="underline">Dashboard (SSE)</Link>
         <Link href="/ai" className="underline">AI Playground</Link>
+        <Link href="/services" className="underline">Servicios</Link>
       </div>
     </div>
   );

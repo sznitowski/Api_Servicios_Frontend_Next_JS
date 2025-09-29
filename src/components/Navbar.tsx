@@ -32,7 +32,7 @@ export default function Navbar() {
 
   return (
     <nav className="flex items-center gap-4 p-3 border-b">
-      <Link href="/">Servicios</Link>
+      <Link href="/services">Servicios</Link>
       <Link href="/dashboard">Inicio</Link>
       <Link href="/requests">Pedidos</Link>
       <Link href="/notifications">Notificaciones</Link>
