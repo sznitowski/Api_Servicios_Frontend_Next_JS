@@ -1,18 +1,19 @@
 export type SortKey = 'distance' | 'rating' | 'price';
 
-export interface ProviderItem {
+// src/types/providers.ts
+export type ProviderSearchItem = {
   providerUserId: number;
-  displayName: string | null;
-  photoUrl: string | null;
-  ratingAvg: string;
-  ratingCount: number;
-  basePrice: string | null;
-  serviceTypeName: string | null;
-  distanceKm: number;
-  location: { lat: number; lng: number };
-}
+  displayName: string;
+  serviceTypeId: number;
+  serviceTypeName: string;
+  basePrice: string | number | null;
+  ratingAvg?: number | null;
+  ratingCount?: number | null;
+  distanceKm?: number | null;
+};
 
-export interface ProviderSearchResponse {
-  items: ProviderItem[];
-  meta: { page: number; limit: number; total: number; pages: number };
-}
+export type Paged<T> = {
+  items: T[];
+  meta?: { page: number; limit: number; total: number; pages: number };
+};
+
