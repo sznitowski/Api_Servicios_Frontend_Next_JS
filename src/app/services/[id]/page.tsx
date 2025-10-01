@@ -18,7 +18,10 @@ type ApiItem = {
   location: { lat: number; lng: number };
 };
 
-type ApiResponse = { items: ApiItem[]; meta: { page: number; limit: number; total: number; pages: number } };
+type ApiResponse = {
+  items: ApiItem[];
+  meta: { page: number; limit: number; total: number; pages: number };
+};
 
 function parseId(raw: unknown) {
   const v = Array.isArray(raw) ? raw[0] : raw;
@@ -44,7 +47,7 @@ export default function ProvidersByService() {
   useEffect(() => {
     if (!navigator?.geolocation) return;
     navigator.geolocation.getCurrentPosition(
-      p => setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      (p) => setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
       () => setCoords(null),
       { enableHighAccuracy: true, timeout: 7000 }
     );
@@ -59,7 +62,9 @@ export default function ProvidersByService() {
         const qs = new URLSearchParams({
           serviceTypeId: String(stId),
           sort,
-          ...(coords ? { lat: String(coords.lat), lng: String(coords.lng), radiusKm: String(radius) } : {})
+          ...(coords
+            ? { lat: String(coords.lat), lng: String(coords.lng), radiusKm: String(radius) }
+            : {}),
         }).toString();
 
         const res = await api<ApiResponse>("/providers/search?" + qs);
@@ -75,9 +80,7 @@ export default function ProvidersByService() {
   if (loading) return <div className="p-6">Cargando…</div>;
 
   // Centro del mapa: tu ubicación si existe, si no la del primer proveedor o CABA
-  const mapCenter =
-    coords ??
-    items[0]?.location ?? { lat: -34.6037, lng: -58.3816 };
+  const mapCenter = coords ?? items[0]?.location ?? { lat: -34.6037, lng: -58.3816 };
 
   return (
     <div className="p-6 space-y-4">
@@ -86,14 +89,20 @@ export default function ProvidersByService() {
         <div>
           <h1 className="text-2xl font-semibold">Proveedores del servicio #{stId}</h1>
           <div className="text-gray-600 text-sm">
-            {coords ? "Usando tu ubicación actual" : "No pudimos obtener tu ubicación; usando un centro por defecto"}
+            {coords
+              ? "Usando tu ubicación actual"
+              : "No pudimos obtener tu ubicación; usando un centro por defecto"}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-3">
           <div className="flex flex-col">
             <label className="text-sm text-gray-600">Ordenar por</label>
-            <select value={sort} onChange={(e)=>setSort(e.target.value as any)} className="border rounded px-2 py-1 text-sm">
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as any)}
+              className="border rounded px-2 py-1 text-sm"
+            >
               <option value="distance">Distancia</option>
               <option value="rating">Calificación</option>
               <option value="price">Precio</option>
@@ -101,7 +110,14 @@ export default function ProvidersByService() {
           </div>
           <div className="flex flex-col">
             <label className="text-sm text-gray-600">Radio: {radius} km</label>
-            <input type="range" min={5} max={50} step={1} value={radius} onChange={(e)=>setRadius(Number(e.target.value))}/>
+            <input
+              type="range"
+              min={5}
+              max={50}
+              step={1}
+              value={radius}
+              onChange={(e) => setRadius(Number(e.target.value))}
+            />
           </div>
         </div>
       </div>
@@ -118,7 +134,9 @@ export default function ProvidersByService() {
             lat: p.location.lat,
             lng: p.location.lng,
             label: p.displayName ?? `Usuario ${p.providerUserId}`,
-            sublabel: `${fmtStars(p.ratingAvg)} (${p.ratingCount})  ·  ${p.distanceKm?.toFixed?.(1) ?? "?"} km`,
+            sublabel: `${fmtStars(p.ratingAvg)} (${p.ratingCount})  ·  ${
+              p.distanceKm?.toFixed?.(1) ?? "?"
+            } km`,
             selected: selected === p.providerUserId,
           })),
         ]}
@@ -132,14 +150,23 @@ export default function ProvidersByService() {
           {items.map((p) => {
             const isSel = selected === p.providerUserId;
             return (
-              <li key={p.providerUserId} className={`border rounded p-3 ${isSel ? "ring-2 ring-blue-400" : ""}`}>
+              <li
+                key={p.providerUserId}
+                className={`border rounded p-3 ${isSel ? "ring-2 ring-blue-400" : ""}`}
+              >
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-medium">{p.displayName ?? `Usuario ${p.providerUserId}`}</div>
+                    <div className="font-medium">
+                      {p.displayName ?? `Usuario ${p.providerUserId}`}
+                    </div>
                     <div className="text-sm text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
-                      <span>{fmtStars(p.ratingAvg)} <span className="ml-1">({p.ratingCount})</span></span>
+                      <span>
+                        {fmtStars(p.ratingAvg)} <span className="ml-1">({p.ratingCount})</span>
+                      </span>
                       {p.distanceKm != null && <span>{p.distanceKm.toFixed(2)} km</span>}
-                      {p.basePrice && <span>Desde ${Number(p.basePrice).toLocaleString()}</span>}
+                      {p.basePrice && (
+                        <span>Desde ${Number(p.basePrice).toLocaleString()}</span>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -149,8 +176,10 @@ export default function ProvidersByService() {
                     >
                       Ver en mapa
                     </button>
+
+                    {/* TODO: cuando exista /providers/[id], volver a esa ruta */}
                     <Link
-                      href={`/providers/${p.providerUserId}`}
+                      href={`/services/${p.providerUserId}`}
                       className="border rounded px-3 py-1 hover:bg-gray-50 text-sm"
                     >
                       Ver perfil

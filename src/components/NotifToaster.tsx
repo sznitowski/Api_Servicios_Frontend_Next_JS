@@ -27,6 +27,10 @@ export default function NotifToaster() {
   const { token } = useAuth();
   const { lastEvent } = useSSE("/api/notifications/stream");
 
+  // ✅ Evita hydration mismatch: SSR y primer render del cliente devuelven null
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const [toasts, setToasts] = useState<Toast[]>([]);
   const shownIds = useRef<Set<number>>(new Set());   // evita duplicados
   const seenQueue = useRef<number[]>([]);            // para purgar viejos
@@ -36,7 +40,7 @@ export default function NotifToaster() {
   const enabled = useMemo(() => Boolean(token), [token]);
 
   useEffect(() => {
-    if (!enabled || !lastEvent) return;
+    if (!mounted || !enabled || !lastEvent) return;
 
     try {
       const ev = lastEvent as Incoming;
@@ -72,7 +76,7 @@ export default function NotifToaster() {
     } catch {
       // noop
     }
-  }, [enabled, lastEvent]);
+  }, [mounted, enabled, lastEvent]);
 
   useEffect(() => {
     return () => {
@@ -82,7 +86,7 @@ export default function NotifToaster() {
     };
   }, []);
 
-  if (!enabled) return null;
+  if (!mounted || !enabled) return null;
 
   return (
     <div
