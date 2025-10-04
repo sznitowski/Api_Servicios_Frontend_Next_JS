@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useApi } from "@/hooks/useApi";
 import { gotoHomeForUser } from "@/lib/routeAfterAuth";
 
-type Me = { id: number; email: string; name?: string; role?: string | null };
+type Me = {
+  id: number;
+  email: string;
+  name?: string;
+  role?: string | null;
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -32,7 +37,7 @@ export default function LoginPage() {
         if (!alive) return;
         gotoHomeForUser(router, me, next);
       } catch {
-        // si falla, me quedo en login igual
+        // si falla, me quedo en login
       }
     })();
     return () => {
@@ -41,7 +46,6 @@ export default function LoginPage() {
   }, [token, api, router, next]);
 
   function onKeyUp(e: React.KeyboardEvent<HTMLInputElement>) {
-    // getModifierState existe en los eventos de teclado
     setCapsOn(e.getModifierState?.("CapsLock") ?? false);
   }
 
@@ -51,13 +55,11 @@ export default function LoginPage() {
     setErr(null);
     setLoading(true);
     try {
-      // 1) login (guarda token)
+      // Solo hacemos login; el useEffect anterior se encarga de redirigir
+      // cuando el token ya esté persistido y disponible para el api client.
       await login(email.trim(), password);
-      // 2) obtengo rol y redirijo
-      const me = await api<Me>("/auth/me");
-      gotoHomeForUser(router, me, next);
     } catch (e: any) {
-      setErr(e?.message ?? "Error de login");
+      setErr(e?.message ?? "No autorizado");
     } finally {
       setLoading(false);
     }
@@ -65,7 +67,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-[70vh] grid place-items-center px-4">
-      <div className="w-full max-w-md rounded-2xl border p-6 shadow-sm">
+      <div className="w-full max-w-md rounded-2xl border p-6 shadow-sm bg-white">
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-semibold">Ingresá</h1>
           <p className="text-sm text-gray-500">Usá las credenciales demo</p>
@@ -111,7 +113,11 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {err && <p className="mt-4 text-sm text-red-600">{err}</p>}
+        {err && (
+          <p className="mt-4 text-sm text-red-600" role="alert">
+            {err}
+          </p>
+        )}
 
         <div className="mt-6 grid grid-cols-2 gap-2 text-xs text-gray-500">
           <div className="rounded-lg border p-2">

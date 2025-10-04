@@ -4,43 +4,40 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useSSE } from "@/hooks/useSSE";
+import { useAuth } from "@/lib/auth";
 
 export default function NotifBadge() {
-  const { apiFetch } = useApi();
-  const [count, setCount] = useState<number>(0);
+  const { token } = useAuth();
+  const { api } = useApi();
   const { lastEvent, connected } = useSSE("/api/notifications/stream");
+  const [count, setCount] = useState<number>(0);
 
-  // 1) Carga inicial
+  async function refresh() {
+    try {
+      // Soporta { count } o { total } según backend
+      const data = await api<{ count?: number; total?: number }>("/notifications/me/count");
+      const n = (data.count ?? data.total ?? 0) as number;
+      setCount(n);
+    } catch {
+      // ignorar
+    }
+  }
+
+  // 1) Carga inicial cuando hay token
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await apiFetch("/notifications/me/count");
-        if (res.ok) {
-          const { total } = await res.json();
-          setCount(total ?? 0);
-        }
-      } catch {
-        /* noop */
-      }
-    })();
-  }, [apiFetch]);
+    if (!token) { setCount(0); return; }
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
-  // 2) SSE: si llega una notificación (tiene id + message|type), incrementamos
+  // 2) Al llegar cualquier evento por SSE, re-consultar el contador (más fiable que "sumar 1")
   useEffect(() => {
     if (!lastEvent) return;
-    try {
-      const ev = lastEvent as any;
-      if (ev?.id && (ev?.message || ev?.type)) {
-        setCount((c) => c + 1);
-      }
-    } catch {
-      /* noop */
-    }
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastEvent]);
 
-  // 3) Puente global: otras pantallas pueden ajustar el badge sin recargar
-  //    - notif:decrease -> resta N (p.ej., al marcar como visto)
-  //    - notif:inc     -> suma N (lo dejo por compatibilidad si ya lo usabas)
+  // 3) Puente global opcional (mantengo tu compat)
   useEffect(() => {
     const onInc = (e: Event) =>
       setCount((c) => c + Number((e as CustomEvent).detail || 1));
@@ -50,7 +47,6 @@ export default function NotifBadge() {
     window.addEventListener("notif:inc", onInc as EventListener);
     window.addEventListener("notif:decrease", onDec as EventListener);
 
-    // Compatibilidad hacia atrás: si en algún lado sigue emitiendo "notif:seen"
     const onSeenCompat = (e: Event) =>
       setCount((c) => Math.max(0, c - Number((e as CustomEvent).detail || 1)));
     window.addEventListener("notif:seen", onSeenCompat as EventListener);
@@ -61,6 +57,8 @@ export default function NotifBadge() {
       window.removeEventListener("notif:seen", onSeenCompat as EventListener);
     };
   }, []);
+
+  if (!token) return null;
 
   return (
     <Link href="/notifications" style={{ position: "relative", display: "inline-block" }}>
