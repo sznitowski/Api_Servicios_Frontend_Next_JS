@@ -1,16 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useApi } from "@/hooks/useApi";
 import NotifBadge from "./NotifBadge";
 
-type Me = { id: number; email: string; name?: string; role?: string };
+type Role = "ADMIN" | "CLIENT" | "PROVIDER" | string;
+type Me = { id: number; email: string; name?: string; role?: Role };
 
 export default function Navbar() {
+  const pathname = usePathname();
   const { token, logout } = useAuth();
   const { api } = useApi();
+
   const [me, setMe] = useState<Me | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
@@ -30,32 +34,64 @@ export default function Navbar() {
     };
   }, [token, api]);
 
+  const isProvider = useMemo(() => me?.role === "PROVIDER", [me]);
+
+  const linkCls = (href: string) =>
+    `px-1 ${pathname.startsWith(href) ? "font-semibold underline" : ""}`;
+
   return (
     <nav className="flex items-center gap-4 p-3 border-b">
-      <Link href="/services">Servicios</Link>
-      <Link href="/dashboard">Inicio</Link>
-      <Link href="/requests">Pedidos</Link>
-      <Link href="/notifications">Notificaciones</Link>
-      <Link href="/ai">AI</Link>
-      <Link href="/provider/open" className="underline">Abiertos cerca</Link>
-      <Link href="/provider/my" className="underline">Mis trabajos</Link>
+      <Link href="/services" className={linkCls("/services")}>Servicios</Link>
+      <Link href="/dashboard" className={linkCls("/dashboard")}>Inicio</Link>
+      <Link href="/requests" className={linkCls("/requests")}>Pedidos</Link>
 
-      {/* Evitamos mismatch entre servidor y cliente */}
+      <Link href="/notifications" className={linkCls("/notifications")}>
+        <span className="inline-flex items-center gap-1">
+          Notificaciones
+          {token && <NotifBadge />}
+        </span>
+      </Link>
+
+      <Link href="/ai" className={linkCls("/ai")}>AI</Link>
+
+      {/* Enlaces exclusivos de proveedor */}
+      {isProvider && (
+        <>
+          <Link href="/providers/open" className={`${linkCls("/providers/open")} underline`}>
+            Abiertos cerca
+          </Link>
+          <Link href="/providers/my" className={`${linkCls("/providers/my")} underline`}>
+            Mis trabajos
+          </Link>
+        </>
+      )}
+
+      {/* Lado derecho: sesión */}
       <div className="ml-auto flex items-center gap-4" suppressHydrationWarning>
-        {!hydrated ? null : (
+        {!hydrated ? null : me ? (
           <>
-            {token && <NotifBadge />}
-            {me ? (
-              <>
-                <span className="text-sm text-gray-600">{me.email}</span>
-                <button onClick={logout} className="border px-3 py-1 rounded">
-                  Salir
-                </button>
-              </>
-            ) : (
-              <Link href="/login">Ingresar</Link>
+            {/* Ver perfil para proveedores */}
+            {isProvider && (
+              <Link
+                href={`/providers/${me.id}`}
+                className="text-sm underline"
+                title="Ver mi perfil público"
+              >
+                Ver perfil
+              </Link>
             )}
+
+            {/* Si tenés una página de cuenta para clientes/admin, descomentá una de estas: */}
+            {/* {me && me.role !== "PROVIDER" && <Link href="/profile" className="text-sm underline">Mi cuenta</Link>} */}
+            {/* {me && me.role !== "PROVIDER" && <Link href={`/clients/${me.id}`} className="text-sm underline">Mi perfil</Link>} */}
+
+            <span className="text-sm text-gray-600">{me.email}</span>
+            <button onClick={logout} className="border px-3 py-1 rounded hover:bg-gray-50">
+              Salir
+            </button>
           </>
+        ) : (
+          <Link href="/login" className={linkCls("/login")}>Ingresar</Link>
         )}
       </div>
     </nav>
