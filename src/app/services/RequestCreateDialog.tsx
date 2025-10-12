@@ -4,8 +4,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import Spinner from '@/components/ui/Spinner';
 import InlineAlert from '@/components/ui/InlineAlert';
-import MapView from '@/components/MapView';
+import dynamic from 'next/dynamic';
 import { makeIdemKey } from '@/lib/idempotency';
+
+// Evita SSR con react-leaflet
+const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
 
 type Props = {
   open: boolean;
@@ -95,7 +98,8 @@ export default function RequestCreateDialog({
           'Idempotency-Key': getIdem(),
         },
         body: JSON.stringify({
-          providerUserId,
+          // ✅ nombre correcto para el backend
+          providerId: providerUserId,
           serviceTypeId,
           title,
           description,

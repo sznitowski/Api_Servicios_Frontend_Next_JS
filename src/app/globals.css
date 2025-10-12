@@ -1,25 +1,33 @@
 @import "tailwindcss";
 
+/* Forzamos esquema CLARO para evitar auto-dark de Edge/Chrome y
+   reducir riesgos de hydration por diferencias de tema */
 :root {
+  color-scheme: light;
   --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --foreground: #111827; /* gray-900 */
+  /* si usás fuentes custom de Tailwind, dejá tus vars: */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+/* Si el SO está en dark, mantenemos el esquema en light igualmente */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root { color-scheme: light; }
+}
+
+/* Opcional: evita recoloreo en modo “High Contrast / forced-colors”.
+   Si querés preservar accesibilidad HC, podés mover estas reglas a
+   contenedores puntuales (navbar, tablas) en vez de aplicarlas al body. */
+@media (forced-colors: active) {
+  body {
+    forced-color-adjust: none;
+    background: #fff !important;
+    color: #111 !important;
   }
 }
 
-body {
+html, body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;

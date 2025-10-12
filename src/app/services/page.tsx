@@ -10,11 +10,11 @@ import {
   type ReactNode,
 } from "react";
 import { useApi } from "@/hooks/useApi";
-import MapView from "@/components/MapView";
+import dynamic from "next/dynamic";
 
-/* =========================
- * Tipos de datos
- * =======================*/
+// Evita SSR con react-leaflet
+const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
+
 type Category = {
   id: number;
   name: string;
@@ -40,9 +40,6 @@ type SearchResponse = {
   meta: { page: number; limit: number; total: number; pages: number };
 };
 
-/* =========================
- * Helpers UI
- * =======================*/
 function stars(n: number) {
   const v = Math.max(0, Math.min(5, Math.round(n || 0)));
   return (
@@ -53,7 +50,6 @@ function stars(n: number) {
   );
 }
 
-/** Modal que se renderiza en un portal al <body> para quedar SIEMPRE sobre el mapa */
 function Modal({
   open,
   onClose,
@@ -66,23 +62,19 @@ function Modal({
   children: ReactNode;
 }) {
   const [mounted, setMounted] = useState(false);
-
   useEffect(() => setMounted(true), []);
-
-  // Evita scroll del body detrás del modal
   useEffect(() => {
     if (!mounted) return;
     if (open) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
-      document.body.classList.add("modal-open"); // opcional para estilos globales
+      document.body.classList.add("modal-open");
       return () => {
         document.body.style.overflow = prev;
         document.body.classList.remove("modal-open");
       };
     }
   }, [open, mounted]);
-
   if (!open || !mounted) return null;
 
   return createPortal(
@@ -98,10 +90,7 @@ function Modal({
       >
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold">{title}</h3>
-          <button
-            className="text-sm text-gray-600 hover:underline"
-            onClick={onClose}
-          >
+          <button className="text-sm text-gray-600 hover:underline" onClick={onClose}>
             Cerrar
           </button>
         </div>
@@ -112,9 +101,6 @@ function Modal({
   );
 }
 
-/* =========================
- * Página
- * =======================*/
 export default function ServicesPage() {
   const { api } = useApi();
 
@@ -122,13 +108,15 @@ export default function ServicesPage() {
   const [cats, setCats] = useState<Category[]>([]);
   const [loadingCats, setLoadingCats] = useState(true);
   const [catId, setCatId] = useState<number | null>(null);
+  const [stId, setStId] = useState<number | null>(null);
 
   // Geoloc
-  const [coords, setCoords] = useState<{ lat: number | null; lng: number | null }>(
-    { lat: null, lng: null }
-  );
+  const [coords, setCoords] = useState<{ lat: number | null; lng: number | null }>({
+    lat: null,
+    lng: null,
+  });
 
-  // Búsqueda por rubro
+  // Búsqueda
   const [radiusKm, setRadiusKm] = useState(20);
   const [sort, setSort] = useState<"distance" | "rating" | "price">("distance");
   const [items, setItems] = useState<ApiItem[]>([]);
@@ -149,7 +137,7 @@ export default function ServicesPage() {
   const [justCreated, setJustCreated] = useState<Set<number>>(new Set());
   const lastSigRef = useRef<string | null>(null);
 
-  /* Cargar catálogo */
+  // Cargar catálogo
   useEffect(() => {
     (async () => {
       try {
@@ -163,7 +151,7 @@ export default function ServicesPage() {
     })();
   }, [api]);
 
-  /* Geo inicial */
+  // Geo inicial
   useEffect(() => {
     if (!navigator?.geolocation) {
       setCoords({ lat: -34.6037, lng: -58.3816 });
@@ -176,19 +164,23 @@ export default function ServicesPage() {
     );
   }, []);
 
-  /* Buscar proveedores */
+  // Buscar proveedores
   useEffect(() => {
     (async () => {
       if (!catId || coords.lat == null || coords.lng == null) return;
       setLoadingSearch(true);
       try {
-        const qs = new URLSearchParams({
-          categoryId: String(catId),
+        const base = {
           lat: String(coords.lat),
           lng: String(coords.lng),
           radiusKm: String(radiusKm),
           sort,
+        };
+        const qs = new URLSearchParams({
+          ...base,
+          ...(stId ? { serviceTypeId: String(stId) } : { categoryId: String(catId) }),
         }).toString();
+
         const res = await api<SearchResponse>("/providers/search?" + qs);
         setItems(res?.items ?? []);
         setSelectedId(null);
@@ -196,9 +188,9 @@ export default function ServicesPage() {
         setLoadingSearch(false);
       }
     })();
-  }, [catId, coords.lat, coords.lng, radiusKm, sort, api]);
+  }, [catId, stId, coords.lat, coords.lng, radiusKm, sort, api]);
 
-  /* Markers del mapa */
+  // Markers del mapa
   const markers = useMemo(
     () =>
       items.map((p) => ({
@@ -217,23 +209,22 @@ export default function ServicesPage() {
       const s = items.find((i) => i.providerUserId === selectedId);
       if (s) return { lat: s.location.lat, lng: s.location.lng };
     }
-    if (coords.lat != null && coords.lng != null)
-      return { lat: coords.lat, lng: coords.lng };
+    if (coords.lat != null && coords.lng != null) return { lat: coords.lat, lng: coords.lng };
     return { lat: -34.6037, lng: -58.3816 };
   }, [coords, items, selectedId]);
 
-  /* Abrir modal de creación */
+  // Abrir modal de creación
   function openCreate(it: ApiItem) {
     if (justCreated.has(it.providerUserId)) return;
     setCreateFor(it);
 
-    const stOpt =
-      it.serviceTypeId ?? cats.find((c) => c.id === catId)?.serviceTypes?.[0]?.id ?? null;
-    setCreateStId(stOpt);
+    const defaultSt = cats.find((c) => c.id === catId)?.serviceTypes?.[0]?.id ?? null;
+    setCreateStId(stId ?? it.serviceTypeId ?? defaultSt);
 
     const stName =
       it.serviceTypeName ??
-      cats.find((c) => c.id === catId)?.serviceTypes?.find((s) => s.id === stOpt)?.name ??
+      cats.find((c) => c.id === catId)?.serviceTypes?.find((s) => s.id === (stId ?? defaultSt))
+        ?.name ??
       "Servicio";
 
     setCreateTitle(`Solicitud - ${stName}`);
@@ -244,7 +235,7 @@ export default function ServicesPage() {
     setCreateOpen(true);
   }
 
-  /* Enviar creación */
+  // Enviar creación
   async function submitCreate() {
     if (!createFor || createStId == null || coords.lat == null || coords.lng == null) {
       setCreateMsg("Completá los datos requeridos.");
@@ -263,7 +254,7 @@ export default function ServicesPage() {
       "|" +
       createFor.providerUserId;
 
-    if (lastSigRef.current === sig) return; // evita doble click
+    if (lastSigRef.current === sig) return;
     lastSigRef.current = sig;
 
     try {
@@ -279,12 +270,14 @@ export default function ServicesPage() {
             `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         },
         body: JSON.stringify({
+          // 👇 CORRECTO: el backend espera providerUserId (NO providerId)
+          providerUserId: createFor.providerUserId,
           serviceTypeId: createStId,
           title: createTitle || "Solicitud",
           description: createDesc || undefined,
           address: "Cercanías",
-          lat: coords.lat,
-          lng: coords.lng,
+          lat: coords.lat!,
+          lng: coords.lng!,
           priceOffered: createPrice === "" ? undefined : Number(createPrice),
         }),
       });
@@ -295,33 +288,57 @@ export default function ServicesPage() {
         n.add(createFor.providerUserId);
         return n;
       });
-
       setTimeout(() => setCreateOpen(false), 1200);
     } catch (e: any) {
       setCreateMsg(`❌ ${e?.message || "Error creando el pedido"}`);
-      lastSigRef.current = null; // permite reintentar
+      lastSigRef.current = null;
     } finally {
       setCreating(false);
     }
   }
+
+  const currentServices = useMemo(
+    () => cats.find((c) => c.id === catId)?.serviceTypes ?? [],
+    [cats, catId]
+  );
 
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Servicios</h1>
 
       {/* Filtros */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
         <div>
           <label className="block text-sm text-gray-600 mb-1">Rubro</label>
           <select
             value={catId ?? ""}
-            onChange={(e) => setCatId(e.target.value ? Number(e.target.value) : null)}
+            onChange={(e) => {
+              setCatId(e.target.value ? Number(e.target.value) : null);
+              setStId(null);
+            }}
             className="w-full border rounded px-3 py-2"
           >
             <option value="">— Seleccionar —</option>
             {cats.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm text-gray-600 mb-1">Servicio</label>
+          <select
+            value={stId ?? ""}
+            onChange={(e) => setStId(e.target.value ? Number(e.target.value) : null)}
+            className="w-full border rounded px-3 py-2"
+            disabled={!catId}
+          >
+            <option value="">— Todos los servicios —</option>
+            {currentServices.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
               </option>
             ))}
           </select>
@@ -361,18 +378,13 @@ export default function ServicesPage() {
       ) : (
         <>
           <div className="h-[420px] border rounded overflow-hidden">
-            <MapView
-              center={center}
-              markers={markers}
-              height={420}
-              onSelect={(id) => setSelectedId(id)}
-            />
+            <MapView center={center} markers={markers} height={420} onSelect={(id) => setSelectedId(id)} />
           </div>
 
           {loadingSearch ? (
             <div className="text-gray-500">Buscando profesionales cerca…</div>
           ) : items.length === 0 ? (
-            <div className="text-gray-500">No hay proveedores para este rubro en tu zona.</div>
+            <div className="text-gray-500">No hay proveedores para este rubro/servicio en tu zona.</div>
           ) : (
             <ul className="space-y-3">
               {items.map((p) => {
@@ -400,9 +412,7 @@ export default function ServicesPage() {
                         {stars(Number(p.ratingAvg))} <span className="ml-1">({p.ratingCount})</span>
                         <span className="ml-3">{p.distanceKm.toFixed(2)} km</span>
                         {p.basePrice && (
-                          <span className="ml-3">
-                            Desde ${Number(p.basePrice).toLocaleString()}
-                          </span>
+                          <span className="ml-3">Desde ${Number(p.basePrice).toLocaleString()}</span>
                         )}
                       </div>
                       {p.serviceTypeName && (
@@ -418,17 +428,11 @@ export default function ServicesPage() {
                       </Link>
                       <button
                         className={`rounded px-3 py-1 text-sm ${
-                          disabled
-                            ? "bg-gray-300 text-gray-600 cursor-not-allowed"
-                            : "bg-black text-white"
+                          disabled ? "bg-gray-300 text-gray-600 cursor-not-allowed" : "bg-black text-white"
                         }`}
                         onClick={() => openCreate(p)}
                         disabled={disabled}
-                        title={
-                          disabled
-                            ? "Ya creaste un pedido para este proveedor"
-                            : "Crear solicitud"
-                        }
+                        title={disabled ? "Ya creaste un pedido para este proveedor" : "Crear solicitud"}
                       >
                         {disabled ? "Pedido creado" : "Solicitar"}
                       </button>
@@ -442,11 +446,7 @@ export default function ServicesPage() {
       )}
 
       {/* Modal crear solicitud */}
-      <Modal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title="Crear solicitud"
-      >
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Crear solicitud">
         {createFor && (
           <div className="space-y-3">
             <div className="text-sm text-gray-600">
@@ -457,9 +457,7 @@ export default function ServicesPage() {
               <label className="block text-sm text-gray-600">Tipo de servicio</label>
               <select
                 value={createStId ?? ""}
-                onChange={(e) =>
-                  setCreateStId(e.target.value ? Number(e.target.value) : null)
-                }
+                onChange={(e) => setCreateStId(e.target.value ? Number(e.target.value) : null)}
                 className="w-full border rounded px-3 py-2"
               >
                 <option value="">— Seleccionar —</option>
@@ -482,7 +480,7 @@ export default function ServicesPage() {
               />
             </div>
 
-            <div>
+            <div className="mb-1">
               <label className="block text-sm text-gray-600">Descripción (opcional)</label>
               <textarea
                 className="w-full border rounded px-3 py-2"
@@ -493,21 +491,13 @@ export default function ServicesPage() {
             </div>
 
             <div>
-              <label className="block text-sm text-gray-600">
-                Precio ofrecido (opcional)
-              </label>
+              <label className="block text-sm text-gray-600">Precio ofrecido (opcional)</label>
               <input
                 type="number"
                 className="w-full border rounded px-3 py-2"
                 value={createPrice}
-                onChange={(e) =>
-                  setCreatePrice(e.target.value === "" ? "" : Number(e.target.value))
-                }
-                placeholder={
-                  createFor.basePrice
-                    ? `Sugerido: ${Number(createFor.basePrice).toLocaleString()}`
-                    : ""
-                }
+                onChange={(e) => setCreatePrice(e.target.value === "" ? "" : Number(e.target.value))}
+                placeholder={createFor.basePrice ? `Sugerido: ${Number(createFor.basePrice).toLocaleString()}` : ""}
               />
             </div>
 
@@ -518,11 +508,7 @@ export default function ServicesPage() {
             {createMsg && <div className="text-sm">{createMsg}</div>}
 
             <div className="flex justify-end gap-2 pt-1">
-              <button
-                className="px-4 py-2 rounded border"
-                onClick={() => setCreateOpen(false)}
-                disabled={creating}
-              >
+              <button className="px-4 py-2 rounded border" onClick={() => setCreateOpen(false)} disabled={creating}>
                 Cerrar
               </button>
               <button

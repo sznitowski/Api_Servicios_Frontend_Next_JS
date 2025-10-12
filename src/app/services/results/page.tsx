@@ -56,8 +56,8 @@ export default function Results() {
           lng: String(coords.lng),
           radiusKm,
           sort,
-          ...(categoryId ? { categoryId } : {}),
           ...(serviceTypeId ? { serviceTypeId } : {}),
+          ...(categoryId && !serviceTypeId ? { categoryId } : {}), // prioridad al serviceTypeId
         }).toString();
 
         const res = await api<{ items: Item[] }>("/providers/search?" + qs);
@@ -74,7 +74,7 @@ export default function Results() {
   return (
     <div className="p-6 space-y-4">
       <h1 className="text-2xl font-semibold">
-        {categoryId ? `Profesionales del rubro #${categoryId}` : `Profesionales del servicio #${serviceTypeId}`}
+        {serviceTypeId ? `Profesionales del servicio #${serviceTypeId}` : `Profesionales del rubro #${categoryId}`}
       </h1>
 
       {items.length === 0 ? (

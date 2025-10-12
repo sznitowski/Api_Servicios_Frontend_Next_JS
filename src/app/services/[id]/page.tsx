@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useApi } from "@/hooks/useApi";
-import MapView from "@/components/MapView";
+import dynamic from "next/dynamic";
+
+// Evita "window is not defined" por react-leaflet
+const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
 type ApiItem = {
   providerUserId: number;
