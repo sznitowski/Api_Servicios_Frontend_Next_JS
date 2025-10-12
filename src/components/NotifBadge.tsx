@@ -1,16 +1,23 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useSSE } from "@/hooks/useSSE";
 import { useAuth } from "@/lib/auth";
 
+/**
+ * Campanita + badge de notificaciones sin <Link> interno.
+ * Evitamos hydration mismatch: no renderiza hasta después del mount.
+ */
 export default function NotifBadge() {
   const { token } = useAuth();
   const { api } = useApi();
   const { lastEvent, connected } = useSSE("/api/notifications/stream");
   const [count, setCount] = useState<number>(0);
+
+  // 🚫 Importante: bloquear render hasta que monte en cliente
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   async function refresh() {
     try {
@@ -25,20 +32,22 @@ export default function NotifBadge() {
 
   // 1) Carga inicial cuando hay token
   useEffect(() => {
+    if (!mounted) return;       // <- evita ejecutar antes del mount
     if (!token) { setCount(0); return; }
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [mounted, token]);
 
-  // 2) Al llegar cualquier evento por SSE, re-consultar el contador (más fiable que "sumar 1")
+  // 2) Al llegar cualquier evento por SSE, re-consultar el contador
   useEffect(() => {
-    if (!lastEvent) return;
+    if (!mounted || !lastEvent) return;
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastEvent]);
+  }, [mounted, lastEvent]);
 
-  // 3) Puente global opcional (mantengo tu compat)
+  // 3) Puente global opcional (compat)
   useEffect(() => {
+    if (!mounted) return;
     const onInc = (e: Event) =>
       setCount((c) => c + Number((e as CustomEvent).detail || 1));
     const onDec = (e: Event) =>
@@ -56,12 +65,18 @@ export default function NotifBadge() {
       window.removeEventListener("notif:decrease", onDec as EventListener);
       window.removeEventListener("notif:seen", onSeenCompat as EventListener);
     };
-  }, []);
+  }, [mounted]);
 
-  if (!token) return null;
+  // SSR: null. Primer render en cliente: null. Luego del mount, si hay token, renderiza.
+  if (!mounted || !token) return null;
 
   return (
-    <Link href="/notifications" style={{ position: "relative", display: "inline-block" }}>
+    <span
+      style={{ position: "relative", display: "inline-block" }}
+      className="align-middle"
+      aria-label="Notificaciones"
+      title={connected ? "Conectado a SSE" : "Desconectado de SSE"}
+    >
       🔔
       <span
         style={{
@@ -76,10 +91,9 @@ export default function NotifBadge() {
           minWidth: 18,
           textAlign: "center",
         }}
-        title={connected ? "Conectado a SSE" : "Desconectado de SSE"}
       >
         {count}
       </span>
-    </Link>
+    </span>
   );
 }

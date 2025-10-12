@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useApi } from "@/hooks/useApi";
 import { gotoHomeForUser } from "@/lib/routeAfterAuth";
@@ -10,6 +10,7 @@ type MeLite = { id: number; role?: string | null };
 
 export default function ProvidersIndexRedirect() {
   const router = useRouter();
+  const pathname = usePathname();
   const search = useSearchParams();
   const next = search.get("next") ?? undefined;
 
@@ -18,26 +19,29 @@ export default function ProvidersIndexRedirect() {
 
   useEffect(() => {
     let alive = true;
+
+    // 🔒 Ejecutar solo en /providers exacto (no en /providers/[id])
+    if (pathname !== "/providers") return;
+
     (async () => {
-      // sin token → a login (respetando next)
       if (!token) {
-        const url = next ? `/login?next=${encodeURIComponent(next)}` : "/login";
-        router.replace(url);
+        router.replace(next ? `/login?next=${encodeURIComponent(next)}` : "/login");
         return;
       }
-
       try {
         const me = await api<MeLite>("/auth/me");
         if (!alive) return;
-        // si es proveedor → /providers/my ; si es otro rol → su home
+        // provider -> /providers/my ; admin -> /dashboard ; client -> /services
         gotoHomeForUser(router, me, undefined);
       } catch {
         router.replace("/login");
       }
     })();
 
-    return () => { alive = false; };
-  }, [token, api, router, next]);
+    return () => {
+      alive = false;
+    };
+  }, [token, api, router, pathname, next]);
 
   return <div className="p-6">Redirigiendo…</div>;
 }

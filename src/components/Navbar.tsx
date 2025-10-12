@@ -45,7 +45,8 @@ export default function Navbar() {
       <Link href="/dashboard" className={linkCls("/dashboard")}>Inicio</Link>
       <Link href="/requests" className={linkCls("/requests")}>Pedidos</Link>
 
-      <Link href="/notifications" className={linkCls("/notifications")}>
+      {/* Link exterior a /notifications; NotifBadge ya NO renderiza <Link> */}
+      <Link href="/notifications" className={linkCls("/notifications")} prefetch={false}>
         <span className="inline-flex items-center gap-1">
           Notificaciones
           {token && <NotifBadge />}
@@ -70,7 +71,6 @@ export default function Navbar() {
       <div className="ml-auto flex items-center gap-4" suppressHydrationWarning>
         {!hydrated ? null : me ? (
           <>
-            {/* Ver perfil para proveedores */}
             {isProvider && (
               <Link
                 href={`/providers/${me.id}`}
@@ -80,11 +80,6 @@ export default function Navbar() {
                 Ver perfil
               </Link>
             )}
-
-            {/* Si tenés una página de cuenta para clientes/admin, descomentá una de estas: */}
-            {/* {me && me.role !== "PROVIDER" && <Link href="/profile" className="text-sm underline">Mi cuenta</Link>} */}
-            {/* {me && me.role !== "PROVIDER" && <Link href={`/clients/${me.id}`} className="text-sm underline">Mi perfil</Link>} */}
-
             <span className="text-sm text-gray-600">{me.email}</span>
             <button onClick={logout} className="border px-3 py-1 rounded hover:bg-gray-50">
               Salir
