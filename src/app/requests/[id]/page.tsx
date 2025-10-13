@@ -8,7 +8,8 @@ import { useApi } from "@/hooks/useApi";
 import { useAuth } from "@/lib/auth";
 import { useSSE } from "@/hooks/useSSE";
 
-type UserLite = { id: number; email?: string; name?: string; role?: string };
+/* ===== Tipos ===== */
+type UserLite = { id: number | string; email?: string; name?: string; role?: string };
 
 type Req = {
     id: number;
@@ -17,6 +18,7 @@ type Req = {
     priceOffered?: number | string | null;
     priceAgreed?: number | string | null;
     createdAt?: string;
+    description?: string | null;
     client?: UserLite | null;
     provider?: UserLite | null;
 };
@@ -40,10 +42,30 @@ type Review = {
 
 type ListResp<T> = { items: T[]; meta?: any } | T[];
 
+/* ===== Utiles ===== */
 function parseIdParam(raw: unknown): number | null {
     const v = Array.isArray(raw) ? raw[0] : raw;
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Traducciones de estados */
+const STATUS_LABELS: Record<string, string> = {
+    PENDING: "PENDIENTE",
+    OFFERED: "OFERTADA",
+    ACCEPTED: "ACEPTADA",
+    IN_PROGRESS: "EN_PROCESO",
+    DONE: "FINALIZADA",
+    CANCELLED: "CANCELADA",
+    CANCELED: "CANCELADA",
+    ADMIN_CANCEL: "CANCELADA",
+    ADMIN_CANCELED: "CANCELADA",
+};
+
+function tStatus(key?: string | null) {
+    const k = (key ?? "").toUpperCase();
+    const label = STATUS_LABELS[k];
+    return (label ?? k) || "—";
 }
 
 export default function RequestDetailPage() {
@@ -61,16 +83,27 @@ export default function RequestDetailPage() {
     const [err, setErr] = useState<string | null>(null);
     const [me, setMe] = useState<UserLite | null>(null);
 
-    // Rating (cliente califica)
+    // Rating (cliente → proveedor)
     const [ratingScore, setRatingScore] = useState<number>(5);
     const [ratingComment, setRatingComment] = useState<string>("");
     const [ratingSending, setRatingSending] = useState(false);
     const [ratingDone, setRatingDone] = useState(false);
 
-    // Feedback visible para el proveedor
+    // Rating (proveedor → cliente)
+    const [cRatingScore, setCRatingScore] = useState<number>(5);
+    const [cRatingComment, setCRatingComment] = useState<string>("");
+    const [cRatingSending, setCRatingSending] = useState(false);
+    const [cRatingDone, setCRatingDone] = useState(false);
+
+    // Feedback visible para proveedor (lo que dejó el cliente)
     const [feedback, setFeedback] = useState<Review | null>(null);
     const [feedbackLoading, setFeedbackLoading] = useState(false);
 
+    // Feedback visible para cliente (lo que dejó el proveedor)
+    const [providerToClientFeedback, setProviderToClientFeedback] = useState<Review | null>(null);
+    const [p2cLoading, setP2cLoading] = useState(false);
+
+    /* ====== Cargar "me" ====== */
     useEffect(() => {
         if (!token) return;
         let alive = true;
@@ -86,6 +119,7 @@ export default function RequestDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token]);
 
+    /* ====== Load ====== */
     const load = async () => {
         if (!reqId) return;
         setLoading(true);
@@ -108,14 +142,14 @@ export default function RequestDetailPage() {
         }
     };
 
-    // Trae la reseña del CLIENTE para este pedido (lo ve el PROVEEDOR)
+    /** Reseña del CLIENTE hacia el PROVEEDOR (la ve el proveedor) */
     const loadClientFeedback = async () => {
-        if (!reqId || !req?.provider?.id) return;       // no dependemos de "me"
-        const providerId = req.provider.id;
+        if (!reqId || !req?.provider?.id) return;
+        const providerId = Number(req.provider.id);
 
         setFeedbackLoading(true);
         try {
-            // 1) Ruta directa por request (si está registrada)
+            // Ruta directa por request (si está)
             const direct = await api<any>(`/requests/${reqId}/rating`).catch(() => null);
             if (direct) {
                 setFeedback({
@@ -129,8 +163,9 @@ export default function RequestDetailPage() {
                 return;
             }
 
-            // 2) Fallback: filtrar por requestId en el listado del proveedor
-            const list = await api<any>(`/providers/id/${providerId}/ratings?requestId=${reqId}&limit=1`);
+            // Fallback: listado del proveedor filtrado por requestId
+            const list = await api<any>(`/providers/id/${providerId}/ratings?requestId=${reqId}&limit=1`)
+                .catch(() => null);
             const item = Array.isArray(list?.items) ? list.items[0] : null;
 
             setFeedback(item ? {
@@ -146,7 +181,44 @@ export default function RequestDetailPage() {
         }
     };
 
+    /** Reseña del PROVEEDOR hacia el CLIENTE (la ve el cliente) */
+    const loadProviderToClientFeedback = async () => {
+        if (!reqId || !req?.client?.id) return;
+        // const clientId = Number(req.client.id);
 
+        setP2cLoading(true);
+        try {
+            // Intento directo (si el backend lo expone)
+            const direct = await api<any>(`/requests/${reqId}/rating/client`).catch(() => null);
+            if (direct) {
+                setProviderToClientFeedback({
+                    id: direct.id,
+                    stars: direct.stars ?? direct.score ?? 0,
+                    comment: direct.comment ?? null,
+                    createdAt: direct.createdAt,
+                    author: direct.rater ?? direct.author ?? { id: 0, email: "" },
+                    target: req.client ?? null,
+                });
+                return;
+            }
+
+            // Fallback común: query param target=client
+            const alt = await api<any>(`/requests/${reqId}/rating?target=client`).catch(() => null);
+            if (alt) {
+                setProviderToClientFeedback({
+                    id: alt.id,
+                    stars: alt.stars ?? alt.score ?? 0,
+                    comment: alt.comment ?? null,
+                    createdAt: alt.createdAt,
+                    author: alt.rater ?? alt.author ?? { id: 0, email: "" },
+                    target: req.client ?? null,
+                });
+                return;
+            }
+        } finally {
+            setP2cLoading(false);
+        }
+    };
 
     const markThisRequestNotifsSeen = async () => {
         if (!reqId) return;
@@ -177,26 +249,29 @@ export default function RequestDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, reqId]);
 
-    // 🔎 Cargar la reseña cuando tenemos request y provider listos (sin depender de "me")
+    // Cuando tenemos request listo, cargar reseñas en ambos sentidos
     useEffect(() => {
-        if (!reqId || !req?.provider?.id) return;
+        if (!reqId || !req) return;
         loadClientFeedback();
+        loadProviderToClientFeedback();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [reqId, req?.provider?.id]);
+    }, [reqId, req?.provider?.id, req?.client?.id]);
 
-    // Si llega un SSE del mismo request, volvemos a leer la reseña
+    // Si llega un SSE del mismo request, recargar
     useEffect(() => {
         if (!lastEvent || !reqId) return;
         const ev = lastEvent as any;
         if (ev?.request?.id === reqId) {
             load();
             loadClientFeedback();
+            loadProviderToClientFeedback();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [lastEvent, reqId]);
 
+    /* ===== Acciones ===== */
 
-    // ----- Acciones de flujo -----
+    // Cliente acepta oferta del proveedor (opcionalmente puede ingresar nuevo precio acordado)
     const doAccept = async () => {
         if (!reqId) return;
         const priceStr = prompt("Precio acordado (opcional). Dejar vacío para no cambiar:");
@@ -212,7 +287,7 @@ export default function RequestDetailPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
             });
-            if (!res.ok) throw new Error(await res.text());
+            if (!res.ok) throw new Error(await safeText(res));
             await load();
             alert("Oferta aceptada ✔");
         } catch (e: any) {
@@ -220,12 +295,58 @@ export default function RequestDetailPage() {
         }
     };
 
+    // Proveedor: aceptar directamente el precio del cliente → usar /accept (SIN body)
+    // Reemplazar COMPLETO en src/app/requests/[id]/page.tsx
+    // Proveedor: aceptar directamente el precio del cliente → usar /accept (SIN body)
+    const doAcceptClientPrice = async () => {
+        if (!reqId) return;
+        if (req?.priceOffered == null) {
+            alert("No hay precio ofrecido por el cliente.");
+            return;
+        }
+        if (!confirm(`¿Ofertar al mismo precio del cliente (${fmtMoney(req.priceOffered as any)})?`)) return;
+
+        try {
+            const res = await apiFetch(`/requests/${reqId}/offer`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ priceOffered: Number(req.priceOffered) }), // <<--
+            });
+            if (!res.ok) throw new Error(await toReadableError(res));
+            await load();
+            alert("Oferta enviada al cliente ✔");
+        } catch (e: any) {
+            alert(e?.message ?? "No se pudo ofertar al precio del cliente");
+        }
+    };
+
+    // Cambiar oferta manualmente
+    const doChangeOffer = async () => {
+        if (!reqId) return;
+        const priceStr = prompt("Precio a ofertar:", req?.priceOffered != null ? String(req.priceOffered) : "");
+        if (priceStr == null) return;
+        const n = Number(priceStr);
+        if (!Number.isFinite(n) || n < 0) return alert("Precio inválido");
+
+        try {
+            const res = await apiFetch(`/requests/${reqId}/offer`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ priceOffered: n }), // <<--
+            });
+            if (!res.ok) throw new Error(await toReadableError(res));
+            await load();
+            alert("Oferta enviada ✔");
+        } catch (e: any) {
+            alert(e?.message ?? "No se pudo ofertar");
+        }
+    };
     const doStart = async () => {
         if (!reqId) return;
         if (!confirm("¿Iniciar el trabajo?")) return;
         try {
             const res = await apiFetch(`/requests/${reqId}/start`, { method: "POST" });
-            if (!res.ok) throw new Error(await res.text());
+            if (!res.ok) throw new Error(await safeText(res));
             await load();
             alert("Trabajo iniciado ✔");
         } catch (e: any) {
@@ -238,7 +359,7 @@ export default function RequestDetailPage() {
         if (!confirm("¿Marcar como completado?")) return;
         try {
             const res = await apiFetch(`/requests/${reqId}/complete`, { method: "POST" });
-            if (!res.ok) throw new Error(await res.text());
+            if (!res.ok) throw new Error(await safeText(res));
             await load();
             alert("Trabajo completado ✔");
         } catch (e: any) {
@@ -256,7 +377,7 @@ export default function RequestDetailPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ reason }),
             });
-            if (!res.ok) throw new Error(await res.text());
+            if (!res.ok) throw new Error(await safeText(res));
             await load();
             alert("Pedido cancelado ✔");
         } catch (e: any) {
@@ -264,18 +385,15 @@ export default function RequestDetailPage() {
         }
     };
 
-    // ----- Rating (cliente califica) -----
+    // Cliente → Proveedor
     const submitRating = async () => {
         if (!reqId) return;
-
         const starsInt = Math.min(5, Math.max(1, Math.round(Number(ratingScore))));
-        if (!Number.isFinite(starsInt)) {
-            return alert("Seleccioná una puntuación de 1 a 5.");
-        }
+        if (!Number.isFinite(starsInt)) return alert("Seleccioná una puntuación de 1 a 5.");
 
         setRatingSending(true);
         try {
-            const res = await apiFetch(`/requests/${reqId}/rating`, { // ruta correcta
+            const res = await apiFetch(`/requests/${reqId}/rating`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -283,14 +401,7 @@ export default function RequestDetailPage() {
                     comment: ratingComment?.trim() || undefined,
                 }),
             });
-            if (!res.ok) {
-                let msg = await res.text();
-                try {
-                    const j = JSON.parse(msg);
-                    msg = Array.isArray(j?.message) ? j.message.join(", ") : (j?.message || msg);
-                } catch { }
-                throw new Error(msg || "Error enviando calificación");
-            }
+            if (!res.ok) throw new Error(await toReadableError(res));
             setRatingDone(true);
             await loadClientFeedback();
             alert("¡Gracias por tu calificación!");
@@ -301,33 +412,76 @@ export default function RequestDetailPage() {
         }
     };
 
-    // Reglas
-    const meId = me?.id ?? 0;
-    const status = (req?.status ?? "").toUpperCase();
+    // Proveedor → Cliente (primero intenta /rating/client; fallback ?target=client)
+    const submitClientRating = async () => {
+        if (!reqId) return;
+        const starsInt = Math.min(5, Math.max(1, Math.round(Number(cRatingScore))));
+        if (!Number.isFinite(starsInt)) return alert("Seleccioná una puntuación de 1 a 5.");
 
-    const canAccept =
-        !!req && status === "OFFERED" && meId && meId === (req.client?.id ?? 0);
+        setCRatingSending(true);
+        try {
+            let res = await apiFetch(`/requests/${reqId}/rating/client`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    stars: starsInt,
+                    comment: cRatingComment?.trim() || undefined,
+                }),
+            });
 
-    const canStart =
-        !!req && status === "ACCEPTED" && meId && meId === (req.provider?.id ?? 0);
+            if (res.status === 404) {
+                res = await apiFetch(`/requests/${reqId}/rating?target=client`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        stars: starsInt,
+                        comment: cRatingComment?.trim() || undefined,
+                    }),
+                });
+            }
 
-    const canComplete =
-        !!req && status === "IN_PROGRESS" && meId && meId === (req.provider?.id ?? 0);
+            if (!res.ok) throw new Error(await toReadableError(res));
+
+            setCRatingDone(true);
+            await loadProviderToClientFeedback();
+            alert("¡Gracias por calificar al cliente!");
+        } catch (e: any) {
+            alert(e?.message ?? "No se pudo enviar la calificación del cliente");
+        } finally {
+            setCRatingSending(false);
+        }
+    };
+
+    /* ===== Reglas UI ===== */
+    const meIdNum = Number(me?.id) || 0;
+    const providerIdNum = Number(req?.provider?.id) || 0;
+    const clientIdNum = Number(req?.client?.id) || 0;
+    const statusRaw = (req?.status ?? "").toUpperCase();
+
+    // Cliente puede aceptar oferta del proveedor
+    const canAccept = !!req && statusRaw === "OFFERED" && meIdNum === clientIdNum;
+
+    // Proveedor puede ofertar (desde PENDING): aceptar precio del cliente o proponer otro
+    const canProviderOffer = !!req && statusRaw === "PENDING" && meIdNum === providerIdNum;
+
+    const canStart = !!req && statusRaw === "ACCEPTED" && meIdNum === providerIdNum;
+
+    const canComplete = !!req && statusRaw === "IN_PROGRESS" && meIdNum === providerIdNum;
 
     const canCancelClient =
-        !!req && meId === (req.client?.id ?? 0) &&
-        ["PENDING", "OFFERED", "ACCEPTED"].includes(status);
+        !!req && meIdNum === clientIdNum && ["PENDING", "OFFERED", "ACCEPTED"].includes(statusRaw);
 
     const canCancelProvider =
-        !!req && meId === (req.provider?.id ?? 0) &&
-        ["OFFERED", "ACCEPTED"].includes(status);
+        !!req && meIdNum === providerIdNum && ["PENDING", "OFFERED", "ACCEPTED"].includes(statusRaw);
 
-    const canRate =
-        !!req && status === "DONE" && meId === (req.client?.id ?? 0) && !ratingDone;
+    const canRateProvider = !!req && statusRaw === "DONE" && meIdNum === clientIdNum && !ratingDone;
 
-    const isProviderView = !!req && !!meId && meId === (req.provider?.id ?? 0);
+    const canRateClient = !!req && statusRaw === "DONE" && meIdNum === providerIdNum && !cRatingDone;
 
-    // UI
+    const isProviderView = !!req && !!meIdNum && meIdNum === providerIdNum;
+    const isClientView = !!req && !!meIdNum && meIdNum === clientIdNum;
+
+    /* ===== UI ===== */
     if (!token) {
         return (
             <div className="p-6">
@@ -370,15 +524,29 @@ export default function RequestDetailPage() {
             </div>
 
             {/* Acciones */}
-            {(canAccept || canStart || canComplete || canCancelClient || canCancelProvider) && (
+            {(canAccept || canStart || canComplete || canCancelClient || canCancelProvider || canProviderOffer) && (
                 <div className="border rounded-md p-4">
                     <div className="font-medium mb-2">Acciones</div>
                     <div className="flex flex-wrap gap-2">
+                        {/* Cliente acepta oferta */}
                         {canAccept && (
                             <button onClick={doAccept} className="border px-3 py-1 rounded hover:bg-gray-50">
                                 Aceptar oferta
                             </button>
                         )}
+
+                        {/* Proveedor: desde PENDIENTE puede aceptar el precio del cliente o cambiarlo */}
+                        {canProviderOffer && (
+                            <>
+                                <button onClick={doAcceptClientPrice} className="border px-3 py-1 rounded hover:bg-gray-50">
+                                    Aceptar precio del cliente
+                                </button>
+                                <button onClick={doChangeOffer} className="border px-3 py-1 rounded hover:bg-gray-50">
+                                    Cambiar oferta
+                                </button>
+                            </>
+                        )}
+
                         {canStart && (
                             <button onClick={doStart} className="border px-3 py-1 rounded hover:bg-gray-50">
                                 Iniciar trabajo
@@ -424,10 +592,18 @@ export default function RequestDetailPage() {
                             ) : null}
                         </dd>
                     </div>
+
+                    {/* Mensaje del cliente */}
+                    <div className="md:col-span-3">
+                        <dt className="text-gray-500">Mensaje del cliente</dt>
+                        <dd className="mt-1 whitespace-pre-wrap">
+                            {req.description?.trim() || "—"}
+                        </dd>
+                    </div>
                 </dl>
             </div>
 
-            {/* Opinión del cliente (visible para el PROVEEDOR) */}
+            {/* Bloque de feedback (lo que dejó el cliente) — visible para el PROVEEDOR */}
             {isProviderView && (
                 <div className="border rounded-md p-4">
                     <div className="font-medium mb-2">Calificación y mensaje del cliente</div>
@@ -454,8 +630,35 @@ export default function RequestDetailPage() {
                 </div>
             )}
 
-            {/* Calificación (cliente) */}
-            {canRate && (
+            {/* Bloque de feedback del PROVEEDOR — visible para el CLIENTE */}
+            {isClientView && (
+                <div className="border rounded-md p-4">
+                    <div className="font-medium mb-2">Calificación del proveedor</div>
+                    {p2cLoading ? (
+                        <p className="text-sm text-gray-500">Buscando reseña…</p>
+                    ) : providerToClientFeedback ? (
+                        <div className="flex items-start gap-3">
+                            <div className="h-9 w-9 rounded-full bg-gray-200 flex items-center justify-center text-xs font-semibold">
+                                {initialsOf(providerToClientFeedback.author.name || providerToClientFeedback.author.email || "P")}
+                            </div>
+                            <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                    {renderStars(providerToClientFeedback.stars)}
+                                    <span className="text-xs text-gray-500">{fmtDate(providerToClientFeedback.createdAt)}</span>
+                                </div>
+                                {providerToClientFeedback.comment && (
+                                    <p className="mt-1 whitespace-pre-wrap text-sm">{providerToClientFeedback.comment}</p>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-500">El proveedor todavía no dejó calificación.</p>
+                    )}
+                </div>
+            )}
+
+            {/* Calificación (cliente → proveedor) */}
+            {canRateProvider && (
                 <div className="border rounded-md p-4">
                     <div className="font-medium mb-2">Calificar trabajo</div>
                     <div className="flex items-center gap-3">
@@ -497,6 +700,49 @@ export default function RequestDetailPage() {
                 </div>
             )}
 
+            {/* Calificación (proveedor → cliente) */}
+            {canRateClient && (
+                <div className="border rounded-md p-4">
+                    <div className="font-medium mb-2">Calificar al cliente</div>
+                    <div className="flex items-center gap-3">
+                        <div className="flex">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                                <button
+                                    key={n}
+                                    aria-label={`Puntuar ${n}`}
+                                    className={`text-2xl leading-none px-1 ${cRatingScore >= n ? "text-yellow-500" : "text-gray-300"}`}
+                                    onClick={() => setCRatingScore(n)}
+                                    disabled={cRatingSending}
+                                    title={`${n} estrella${n > 1 ? "s" : ""}`}
+                                >
+                                    ★
+                                </button>
+                            ))}
+                        </div>
+                        <span className="text-sm text-gray-600">{cRatingScore}/5</span>
+                    </div>
+                    <div className="mt-3">
+                        <textarea
+                            placeholder="Comentario (opcional)"
+                            className="w-full border rounded px-3 py-2 text-sm"
+                            rows={3}
+                            value={cRatingComment}
+                            onChange={(e) => setCRatingComment(e.target.value)}
+                            disabled={cRatingSending}
+                        />
+                    </div>
+                    <div className="mt-3">
+                        <button
+                            onClick={submitClientRating}
+                            disabled={cRatingSending}
+                            className="border px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-60"
+                        >
+                            {cRatingSending ? "Enviando…" : "Enviar calificación"}
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Timeline */}
             <div className="border rounded-md p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -524,7 +770,7 @@ export default function RequestDetailPage() {
                                 {transitions.map((t) => (
                                     <tr key={t.id} className="border-b last:border-0">
                                         <td className="px-3 py-2">{t.id}</td>
-                                        <td className="px-3 py-2">{t.fromStatus ?? "—"}</td>
+                                        <td className="px-3 py-2">{tStatus(t.fromStatus)}</td>
                                         <td className="px-3 py-2"><StatusPill status={t.toStatus} /></td>
                                         <td className="px-3 py-2">{t.actor?.name || t.actor?.email || "—"}</td>
                                         <td className="px-3 py-2">{fmtDate(t.createdAt)}</td>
@@ -539,6 +785,8 @@ export default function RequestDetailPage() {
     );
 }
 
+/* ===== Presentacionales / helpers ===== */
+
 function StatusPill({ status }: { status?: string }) {
     const s = String(status ?? "").toUpperCase();
     const color =
@@ -548,13 +796,13 @@ function StatusPill({ status }: { status?: string }) {
                 ? "bg-blue-100 text-blue-800 border-blue-200"
                 : s === "OFFERED"
                     ? "bg-amber-100 text-amber-800 border-amber-200"
-                    : s === "CANCELLED" || s === "ADMIN_CANCEL"
+                    : s.includes("CANCEL")
                         ? "bg-red-100 text-red-800 border-red-200"
                         : "bg-gray-100 text-gray-800 border-gray-200";
 
     return (
         <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs ${color}`}>
-            {s || "—"}
+            {tStatus(s)}
         </span>
     );
 }
@@ -566,7 +814,7 @@ function fmtMoney(v?: number | string | null) {
     try {
         return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(n);
     } catch {
-        return `$ ${n.toFixed(2)}`;
+        return `$ ${Number(n).toFixed(2)}`;
     }
 }
 
@@ -597,4 +845,21 @@ function renderStars(value?: number) {
             <span className="text-gray-300">{"★".repeat(5 - v)}</span>
         </span>
     );
+}
+
+async function safeText(res: Response) {
+    try {
+        return await res.text();
+    } catch {
+        return "Error";
+    }
+}
+
+async function toReadableError(res: Response) {
+    let msg = await safeText(res);
+    try {
+        const j = JSON.parse(msg);
+        msg = Array.isArray(j?.message) ? j.message.join(", ") : (j?.message || msg);
+    } catch { /* noop */ }
+    return msg || "Error";
 }
