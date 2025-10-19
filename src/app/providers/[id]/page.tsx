@@ -52,7 +52,7 @@ type ProfileSearchParams = DefaultSearchParams & {
 
 /* ================== Helper API ================== */
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:3000";
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:5000";
 
 async function api<T>(path: string, revalidate = 60): Promise<T> {
   const url = path.startsWith("/api") ? `${API_BASE}${path}` : `${API_BASE}/api${path}`;

@@ -1,6 +1,6 @@
 // src/lib/api.ts
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000/api';
+  process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:5000/api';
 
 type ApiInit = RequestInit & {
   /** Si pasás `json`, se serializa y se setea Content-Type automáticamente */
