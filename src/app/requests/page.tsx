@@ -1,7 +1,7 @@
 // src/app/requests/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { useApi } from "@/hooks/useApi";
@@ -22,6 +22,23 @@ type ListResp = {
   items: RequestRow[];
   meta: { page: number; limit: number; total: number; pages: number };
 };
+
+// -------- Traducciones de estado --------
+const STATUS_LABELS: Record<string, string> = {
+  PENDING: "PENDIENTE",
+  OFFERED: "OFERTADA",
+  ACCEPTED: "ACEPTADA",
+  IN_PROGRESS: "EN_PROCESO",
+  DONE: "FINALIZADA",
+  CANCELLED: "CANCELADA",
+  CANCELED: "CANCELADA",
+  ADMIN_CANCEL: "CANCELADA",
+  ADMIN_CANCELED: "CANCELADA",
+};
+function tStatus(key?: string | null) {
+  const k = String(key ?? "").toUpperCase();
+  return STATUS_LABELS[k] ?? (k || "—");
+}
 
 // -------- Utils --------
 function formatMoney(v: number | string | null | undefined) {
@@ -59,20 +76,22 @@ function StatusPill({ status }: { status?: string }) {
       ? "bg-blue-100 text-blue-800 border-blue-200"
       : s === "OFFERED"
       ? "bg-amber-100 text-amber-800 border-amber-200"
-      : s === "CANCELLED" || s === "ADMIN_CANCEL"
+      : s.includes("CANCEL")
       ? "bg-red-100 text-red-800 border-red-200"
       : "bg-gray-100 text-gray-800 border-gray-200";
+
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs ${color}`}>
-      {s || "—"}
+      {tStatus(s)}
     </span>
   );
 }
 
-const ALL_STATUSES = ["", "PENDING", "OFFERED", "ACCEPTED", "IN_PROGRESS", "DONE", "CANCELLED"] as const;
+// Opciones de filtro (mantenemos los códigos, mostramos traducido)
+const STATUS_FILTERS = ["PENDING", "OFFERED", "ACCEPTED", "IN_PROGRESS", "DONE", "CANCELLED"] as const;
 
 export default function RequestsPage() {
-  const { token } = useAuth();                // ⬅️ quitamos `user`
+  const { token } = useAuth();
   const { api, apiFetch } = useApi();
 
   const [items, setItems] = useState<RequestRow[]>([]);
@@ -80,7 +99,7 @@ export default function RequestsPage() {
   const [limit] = useState(10);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<(typeof ALL_STATUSES)[number]>("");
+  const [status, setStatus] = useState<"" | (typeof STATUS_FILTERS)[number]>("");
 
   // carga
   useEffect(() => {
@@ -162,7 +181,9 @@ export default function RequestsPage() {
       });
       if (!res.ok) throw new Error(await res.text());
       setItems((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, status: "ACCEPTED", priceAgreed: body.priceAgreed ?? r.priceAgreed } : r)),
+        prev.map((r) =>
+          r.id === id ? { ...r, status: "ACCEPTED", priceAgreed: body.priceAgreed ?? r.priceAgreed } : r,
+        ),
       );
       alert("Oferta aceptada ✔");
     } catch (e: any) {
@@ -206,9 +227,10 @@ export default function RequestsPage() {
             }}
             className="border rounded px-2 py-1 text-sm"
           >
-            {ALL_STATUSES.map((s) => (
-              <option key={s || "all"} value={s}>
-                {s ? s : "Todos"}
+            <option value="">{`Todos`}</option>
+            {STATUS_FILTERS.map((code) => (
+              <option key={code} value={code}>
+                {tStatus(code)}
               </option>
             ))}
           </select>
