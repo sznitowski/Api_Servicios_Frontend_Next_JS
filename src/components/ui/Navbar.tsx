@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useApi } from "@/hooks/useApi";
-import NotifBadge from "./NotifBadge";
+import NotifBadge from "./../NotifBadge"; // <- mismo folder (/ui)
 
 type Role = "ADMIN" | "CLIENT" | "PROVIDER" | string;
 type Me = { id: number; email: string; name?: string; role?: Role };
@@ -40,12 +40,13 @@ export default function Navbar() {
     `px-1 ${pathname.startsWith(href) ? "font-semibold underline" : ""}`;
 
   return (
-    <nav className="flex items-center gap-4 p-3 border-b">
+    // Oculto en mobile; visible desde md en adelante
+    <nav className="hidden md:flex items-center gap-4 p-3 border-b">
       <Link href="/services" className={linkCls("/services")}>Servicios</Link>
       <Link href="/dashboard" className={linkCls("/dashboard")}>Inicio</Link>
       <Link href="/requests" className={linkCls("/requests")}>Pedidos</Link>
 
-      {/* Link exterior a /notifications; NotifBadge ya NO renderiza <Link> */}
+      {/* Link exterior a /notifications; NotifBadge NO renderiza <Link> */}
       <Link href="/notifications" className={linkCls("/notifications")} prefetch={false}>
         <span className="inline-flex items-center gap-1">
           Notificaciones
@@ -58,10 +59,16 @@ export default function Navbar() {
       {/* Enlaces exclusivos de proveedor */}
       {isProvider && (
         <>
-          <Link href="/providers/open" className={`${linkCls("/providers/open")} underline`}>
+          <Link
+            href="/providers/open"
+            className={`${linkCls("/providers/open")} underline`}
+          >
             Abiertos cerca
           </Link>
-          <Link href="/providers/my" className={`${linkCls("/providers/my")} underline`}>
+          <Link
+            href="/providers/my"
+            className={`${linkCls("/providers/my")} underline`}
+          >
             Mis trabajos
           </Link>
         </>
@@ -81,7 +88,10 @@ export default function Navbar() {
               </Link>
             )}
             <span className="text-sm text-gray-600">{me.email}</span>
-            <button onClick={logout} className="border px-3 py-1 rounded hover:bg-gray-50">
+            <button
+              onClick={logout}
+              className="border px-3 py-1 rounded hover:bg-gray-50"
+            >
               Salir
             </button>
           </>

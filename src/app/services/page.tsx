@@ -10,7 +10,9 @@ import {
   type ReactNode,
 } from "react";
 import { useApi } from "@/hooks/useApi";
+import { useAuth } from "@/lib/auth";
 import dynamic from "next/dynamic";
+import { LoginGateBanner, RequireAuthButton } from "@/components/ui/RequireAuth";
 
 // Evita SSR con react-leaflet
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
@@ -103,6 +105,7 @@ function Modal({
 
 export default function ServicesPage() {
   const { api } = useApi();
+  const { token } = useAuth();
 
   // Catálogo
   const [cats, setCats] = useState<Category[]>([]);
@@ -224,8 +227,7 @@ export default function ServicesPage() {
     const stName =
       it.serviceTypeName ??
       cats.find((c) => c.id === catId)?.serviceTypes?.find((s) => s.id === (stId ?? defaultSt))
-        ?.name ??
-      "Servicio";
+        ?.name ?? "Servicio";
 
     setCreateTitle(`Solicitud - ${stName}`);
     setCreateDesc("");
@@ -270,7 +272,6 @@ export default function ServicesPage() {
             `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         },
         body: JSON.stringify({
-          // 👇 CORRECTO: el backend espera providerUserId (NO providerId)
           providerUserId: createFor.providerUserId,
           serviceTypeId: createStId,
           title: createTitle || "Solicitud",
@@ -305,6 +306,9 @@ export default function ServicesPage() {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Servicios</h1>
+
+      {/* Banner para invitar a iniciar sesión */}
+      {!token && <LoginGateBanner />}
 
       {/* Filtros */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
@@ -426,7 +430,9 @@ export default function ServicesPage() {
                       >
                         Ver perfil
                       </Link>
-                      <button
+
+                      {/* Botón protegido: sin sesión lleva al login */}
+                      <RequireAuthButton
                         className={`rounded px-3 py-1 text-sm ${
                           disabled ? "bg-gray-300 text-gray-600 cursor-not-allowed" : "bg-black text-white"
                         }`}
@@ -435,7 +441,7 @@ export default function ServicesPage() {
                         title={disabled ? "Ya creaste un pedido para este proveedor" : "Crear solicitud"}
                       >
                         {disabled ? "Pedido creado" : "Solicitar"}
-                      </button>
+                      </RequireAuthButton>
                     </div>
                   </li>
                 );
@@ -497,7 +503,9 @@ export default function ServicesPage() {
                 className="w-full border rounded px-3 py-2"
                 value={createPrice}
                 onChange={(e) => setCreatePrice(e.target.value === "" ? "" : Number(e.target.value))}
-                placeholder={createFor.basePrice ? `Sugerido: ${Number(createFor.basePrice).toLocaleString()}` : ""}
+                placeholder={
+                  createFor.basePrice ? `Sugerido: ${Number(createFor.basePrice).toLocaleString()}` : ""
+                }
               />
             </div>
 
@@ -511,13 +519,15 @@ export default function ServicesPage() {
               <button className="px-4 py-2 rounded border" onClick={() => setCreateOpen(false)} disabled={creating}>
                 Cerrar
               </button>
-              <button
+
+              {/* También protegido: si no hay sesión, se redirige a login */}
+              <RequireAuthButton
                 className="px-4 py-2 rounded bg-black text-white disabled:bg-gray-300 disabled:text-gray-700"
                 onClick={submitCreate}
                 disabled={creating}
               >
                 {creating ? "Creando…" : "Crear pedido"}
-              </button>
+              </RequireAuthButton>
             </div>
           </div>
         )}

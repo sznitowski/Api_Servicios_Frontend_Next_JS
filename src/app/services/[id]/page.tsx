@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useApi } from "@/hooks/useApi";
+import { useAuth } from "@/lib/auth";
+import { LoginGateBanner } from "@/components/ui/RequireAuth";
 import dynamic from "next/dynamic";
 
 // Evita "window is not defined" por react-leaflet
@@ -34,10 +36,10 @@ function parseId(raw: unknown) {
 
 export default function ProvidersByService() {
   const { api } = useApi();
+  const { token } = useAuth();
   const params = useParams();
   const stId = useMemo(() => parseId((params as any)?.id), [params]);
 
-  // coordenadas del usuario
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [sort, setSort] = useState<"distance" | "rating" | "price">("distance");
   const [radius, setRadius] = useState(20);
@@ -46,7 +48,6 @@ export default function ProvidersByService() {
   const [items, setItems] = useState<ApiItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Intentar geolocalizar
   useEffect(() => {
     if (!navigator?.geolocation) return;
     navigator.geolocation.getCurrentPosition(
@@ -56,7 +57,6 @@ export default function ProvidersByService() {
     );
   }, []);
 
-  // Fetch
   useEffect(() => {
     if (!stId) return;
     (async () => {
@@ -82,19 +82,15 @@ export default function ProvidersByService() {
   if (!stId) return <div className="p-6">ID inválido.</div>;
   if (loading) return <div className="p-6">Cargando…</div>;
 
-  // Centro del mapa: tu ubicación si existe, si no la del primer proveedor o CABA
   const mapCenter = coords ?? items[0]?.location ?? { lat: -34.6037, lng: -58.3816 };
 
   return (
     <div className="p-6 space-y-4">
-      {/* Header + controles */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Proveedores del servicio #{stId}</h1>
           <div className="text-gray-600 text-sm">
-            {coords
-              ? "Usando tu ubicación actual"
-              : "No pudimos obtener tu ubicación; usando un centro por defecto"}
+            {coords ? "Usando tu ubicación actual" : "No pudimos obtener tu ubicación; usando un centro por defecto"}
           </div>
         </div>
 
@@ -125,7 +121,9 @@ export default function ProvidersByService() {
         </div>
       </div>
 
-      {/* Mapa */}
+      {/* Banner si no hay sesión */}
+      {!token && <LoginGateBanner />}
+
       <MapView
         center={mapCenter}
         height={360}
@@ -145,7 +143,6 @@ export default function ProvidersByService() {
         ]}
       />
 
-      {/* Lista */}
       {items.length === 0 ? (
         <div className="text-gray-500">No hay proveedores para este servicio en tu zona.</div>
       ) : (
@@ -167,9 +164,7 @@ export default function ProvidersByService() {
                         {fmtStars(p.ratingAvg)} <span className="ml-1">({p.ratingCount})</span>
                       </span>
                       {p.distanceKm != null && <span>{p.distanceKm.toFixed(2)} km</span>}
-                      {p.basePrice && (
-                        <span>Desde ${Number(p.basePrice).toLocaleString()}</span>
-                      )}
+                      {p.basePrice && <span>Desde ${Number(p.basePrice).toLocaleString()}</span>}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -179,10 +174,8 @@ export default function ProvidersByService() {
                     >
                       Ver en mapa
                     </button>
-
-                    {/* TODO: cuando exista /providers/[id], volver a esa ruta */}
                     <Link
-                      href={`/services/${p.providerUserId}`}
+                      href={`/providers/${p.providerUserId}`}
                       className="border rounded px-3 py-1 hover:bg-gray-50 text-sm"
                     >
                       Ver perfil
