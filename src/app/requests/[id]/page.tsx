@@ -8,6 +8,7 @@ import { useApi } from "@/hooks/useApi";
 import { useAuth } from "@/lib/auth";
 import { useSSE } from "@/hooks/useSSE";
 import RequestChat from "@/components/RequestChat";
+import { PayButton } from "@/features/payments";
 
 /* ===== Tipos ===== */
 type UserLite = { id: number | string; email?: string; name?: string; role?: string };
@@ -150,7 +151,6 @@ export default function RequestDetailPage() {
 
     setFeedbackLoading(true);
     try {
-      // Ruta directa por request (si está)
       const direct = await api<any>(`/requests/${reqId}/rating`).catch(() => null);
       if (direct) {
         setFeedback({
@@ -164,7 +164,6 @@ export default function RequestDetailPage() {
         return;
       }
 
-      // Fallback: listado del proveedor filtrado por requestId
       const list = await api<any>(`/providers/id/${providerId}/ratings?requestId=${reqId}&limit=1`)
         .catch(() => null);
       const item = Array.isArray(list?.items) ? list.items[0] : null;
@@ -187,7 +186,6 @@ export default function RequestDetailPage() {
     if (!reqId || !req?.client?.id) return;
     setP2cLoading(true);
     try {
-      // Intento directo (si el backend lo expone)
       const direct = await api<any>(`/requests/${reqId}/rating/client`).catch(() => null);
       if (direct) {
         setProviderToClientFeedback({
@@ -201,7 +199,6 @@ export default function RequestDetailPage() {
         return;
       }
 
-      // Fallback común: query param target=client
       const alt = await api<any>(`/requests/${reqId}/rating?target=client`).catch(() => null);
       if (alt) {
         setProviderToClientFeedback({
@@ -456,28 +453,25 @@ export default function RequestDetailPage() {
   const clientIdNum = Number(req?.client?.id) || 0;
   const statusRaw = (req?.status ?? "").toUpperCase();
 
-  // Cliente puede aceptar oferta del proveedor
   const canAccept = !!req && statusRaw === "OFFERED" && meIdNum === clientIdNum;
-
-  // Proveedor puede ofertar (desde PENDING): aceptar precio del cliente o proponer otro
   const canProviderOffer = !!req && statusRaw === "PENDING" && meIdNum === providerIdNum;
-
   const canStart = !!req && statusRaw === "ACCEPTED" && meIdNum === providerIdNum;
-
   const canComplete = !!req && statusRaw === "IN_PROGRESS" && meIdNum === providerIdNum;
-
   const canCancelClient =
     !!req && meIdNum === clientIdNum && ["PENDING", "OFFERED", "ACCEPTED"].includes(statusRaw);
-
   const canCancelProvider =
     !!req && meIdNum === providerIdNum && ["PENDING", "OFFERED", "ACCEPTED"].includes(statusRaw);
-
   const canRateProvider = !!req && statusRaw === "DONE" && meIdNum === clientIdNum && !ratingDone;
-
   const canRateClient = !!req && statusRaw === "DONE" && meIdNum === providerIdNum && !cRatingDone;
 
   const isProviderView = !!req && !!meIdNum && meIdNum === providerIdNum;
   const isClientView = !!req && !!meIdNum && meIdNum === clientIdNum;
+
+  // ⬅️ Mostrar bloque de pago sólo al CLIENTE cuando el pedido esté FINALIZADO
+  const canPay = !!req && isClientView && statusRaw === "DONE";
+  const totalToPay = Number(
+    (req?.priceAgreed ?? req?.priceOffered ?? 0) as number | string,
+  );
 
   /* ===== UI ===== */
   if (!token) {
@@ -569,6 +563,22 @@ export default function RequestDetailPage() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* ⬇️ Bloque de pago */}
+          {canPay && (
+            <section className="border rounded-md p-4 bg-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium mb-1">Total a pagar</div>
+                  <div className="text-2xl tracking-tight">{fmtMoney(totalToPay)}</div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Al pagar, el proveedor será notificado. El recibo quedará asociado a este pedido.
+                  </p>
+                </div>
+                <PayButton requestId={req.id} />
+              </div>
+            </section>
           )}
 
           {/* Detalle */}
@@ -768,7 +778,7 @@ export default function RequestDetailPage() {
                       <th className="px-3 py-2">Fecha</th>
                     </tr>
                   </thead>
-                  <tbody>
+                    <tbody>
                     {transitions.map((t) => (
                       <tr key={t.id} className="border-b last:border-0">
                         <td className="px-3 py-2">{t.id}</td>
