@@ -1,2 +1,3 @@
 export { default as PayButton } from "./PayButton";
-export * from "./usePayments";
+export { default as PaymentsList } from "./PaymentsList";
+export { default as PaymentBadge } from "./PaymentBadge";

@@ -8,7 +8,7 @@ import { useApi } from "@/hooks/useApi";
 import { useAuth } from "@/lib/auth";
 import { useSSE } from "@/hooks/useSSE";
 import RequestChat from "@/components/RequestChat";
-import { PayButton } from "@/features/payments";
+import { PayButton, PaymentsList, PaymentBadge } from "@/features/payments";
 
 /* ===== Tipos ===== */
 type UserLite = { id: number | string; email?: string; name?: string; role?: string };
@@ -23,6 +23,7 @@ type Req = {
   description?: string | null;
   client?: UserLite | null;
   provider?: UserLite | null;
+  paymentStatus?: string | null; // ⬅ nuevo
 };
 
 type Transition = {
@@ -467,11 +468,9 @@ export default function RequestDetailPage() {
   const isProviderView = !!req && !!meIdNum && meIdNum === providerIdNum;
   const isClientView = !!req && !!meIdNum && meIdNum === clientIdNum;
 
-  // ⬅️ Mostrar bloque de pago sólo al CLIENTE cuando el pedido esté FINALIZADO
-  const canPay = !!req && isClientView && statusRaw === "DONE";
-  const totalToPay = Number(
-    (req?.priceAgreed ?? req?.priceOffered ?? 0) as number | string,
-  );
+  // ⬅️ Mostrar bloque de pago sólo al CLIENTE cuando el pedido esté FINALIZADO y haya monto > 0
+  const totalToPay = Number((req?.priceAgreed ?? req?.priceOffered ?? 0) as number | string);
+  const canPay = !!req && isClientView && statusRaw === "DONE" && totalToPay > 0;
 
   /* ===== UI ===== */
   if (!token) {
@@ -505,6 +504,9 @@ export default function RequestDetailPage() {
               <h1 className="text-2xl font-semibold mt-1">Pedido #{req.id}</h1>
               <div className="mt-2 flex items-center gap-2">
                 <StatusPill status={req.status} />
+                {typeof req.paymentStatus !== "undefined" && (
+                  <PaymentBadge status={req.paymentStatus || "PENDING"} />
+                )}
                 {req.createdAt && (
                   <span className="text-sm text-gray-500">Creado: {fmtDate(req.createdAt)}</span>
                 )}
@@ -614,6 +616,9 @@ export default function RequestDetailPage() {
               </div>
             </dl>
           </div>
+
+          {/* Historial de pagos */}
+          <PaymentsList requestId={req.id} />
 
           {/* Bloque de feedback (lo que dejó el cliente) — visible para el PROVEEDOR */}
           {isProviderView && (
@@ -778,7 +783,7 @@ export default function RequestDetailPage() {
                       <th className="px-3 py-2">Fecha</th>
                     </tr>
                   </thead>
-                    <tbody>
+                  <tbody>
                     {transitions.map((t) => (
                       <tr key={t.id} className="border-b last:border-0">
                         <td className="px-3 py-2">{t.id}</td>
